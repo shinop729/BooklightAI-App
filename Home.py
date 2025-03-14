@@ -8,6 +8,7 @@ import re
 import html
 import urllib  
 import os
+import openai 
 from dotenv import load_dotenv
 
 from datetime import datetime
