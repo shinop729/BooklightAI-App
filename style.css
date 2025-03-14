@@ -1,0 +1,120 @@
+/* 全体の背景色など */
+body {
+    background-color: #1E1E1E !important;
+}
+
+.css-18e3th9 {
+    background-color: #1E1E1E !important;
+}
+
+.css-1cpxqw2 .e1fqkh3o3 {
+    background-color: #1E1E1E !important;
+}
+
+/* --- 引用表示カード共通 --- */
+.quote-container {
+    position: relative;
+    margin: 1.5em 0;
+    padding: 1.5em;
+    border-radius: 8px;
+    background: #2a2a2a;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.quote-mark {
+    position: absolute;
+    top: -0.8em;
+    left: 1em;
+    color: #aaa;
+    font-size: 2.5em;
+}
+
+.quote-text {
+    margin: 0 0 1em 0;
+    font-style: italic;
+    color: #eee;
+    line-height: 1.6;
+}
+
+.quote-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.quote-score {
+    text-align: left;
+    font-size: 0.9em;
+    color: #ccc;
+}
+
+.quote-meta {
+    text-align: right;
+    font-size: 0.9em;
+    color: #ccc;
+}
+
+/* --- ランダムハイライト表示用 --- */
+.random-quote-container {
+    position: relative;
+    margin: 1.5em 0;
+    padding: 1.5em;
+    border-radius: 8px;
+    background: #2a2a2a;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.random-quote-mark {
+    position: absolute;
+    top: -0.8em;
+    left: 1em;
+    color: #aaa;
+    font-size: 2.5em;
+}
+
+.random-quote-text {
+    margin: 0 0 1em 0;
+    font-style: italic;
+    color: #eee;
+    line-height: 1.6;
+}
+
+.random-quote-footer {
+    text-align: right;
+    font-size: 0.9em;
+    color: #ccc;
+}
+
+
+/* クリック可能なタイトルに適用するCSSスタイル */
+
+/* ホバー時のスタイル変更 */
+.random-quote-footer a:hover {
+    color: #4da6ff !important; /* 水色に変化 */
+    text-decoration: underline !important; /* 下線を表示 */
+    transition: all 0.2s ease; /* アニメーション効果 */
+}
+
+/* カーソルをポインターに変更 */
+.random-quote-footer a {
+    cursor: pointer;
+    position: relative;
+    padding-right: 18px; /* リンクアイコン用のスペース */
+}
+
+/* リンクアイコンを追加 */
+.random-quote-footer a::after {
+    content: "🔗"; /* リンクアイコン */
+    font-size: 0.8em;
+    opacity: 0;
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    transition: opacity 0.2s ease;
+}
+
+/* ホバー時にリンクアイコンを表示 */
+.random-quote-footer a:hover::after {
+    opacity: 1;
+}

@@ -1,0 +1,24 @@
+# Python仮想環境
+rag-env/
+venv/
+env/
+.env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# データベース・大きなファイル
+csv_chroma_db/
+*.sqlite3
+*.bin
+*.dylib
+*.so
+
+# OSファイル
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+.env
