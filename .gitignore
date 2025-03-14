@@ -22,3 +22,4 @@ csv_chroma_db/
 .Trashes
 Thumbs.db
 .env
+.env.backup
