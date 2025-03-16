@@ -7,6 +7,32 @@ import re
 import html
 from typing import List
 
+# ページ設定
+st.set_page_config(
+    page_title="書籍詳細 | Booklight AI", 
+    page_icon="📖",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
+
+# サイドバー設定
+st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
+st.sidebar.title("Booklight AI")
+st.sidebar.markdown("📚 あなたの読書をAIが照らす")
+st.sidebar.markdown("---")
+
+# サイドバーナビゲーション
+st.sidebar.markdown("### ナビゲーション")
+pages = {
+    "🏠 ホーム": "Home.py",
+    "🔍 検索モード": "pages/Search.py",
+    "💬 チャットモード": "pages/Chat.py",
+    "📚 書籍一覧": "pages/BookList.py"
+}
+
+for page_name, page_url in pages.items():
+    st.sidebar.page_link(page_url, label=page_name)
+
 # 1) 書籍要約を読み込む (BookSummaries.csv)
 @st.cache_data
 def load_book_summaries():
@@ -176,7 +202,7 @@ def main():
     
     if not raw_title:
         st.error("書籍タイトルが指定されていません (クエリパラメータなし)。")
-        st.markdown("[← 書籍一覧に戻る](BookList)")
+        st.markdown("[← 書籍一覧に戻る](pages/BookList.py)")
         st.stop()
     
     # URLデコード
@@ -238,7 +264,7 @@ def main():
             display_quote(i, hl["content"])
     
     # 戻るリンク
-    st.markdown("[← 書籍一覧に戻る](BookList)")
+    st.markdown("[← 書籍一覧に戻る](pages/BookList.py)")
 
 # エントリーポイント
 if __name__ == "__main__":

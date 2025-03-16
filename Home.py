@@ -16,24 +16,10 @@ def setup_app():
     openai.api_key = os.getenv("OPENAI_API_KEY")
     
     st.set_page_config(page_title="Booklight AI", layout="wide")
-    st.sidebar.image("images/booklight_ai_banner.png", use_column_width=True)
+    st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
     st.sidebar.title("Booklight AI")
     st.sidebar.markdown("📚 あなたの読書をAIが照らす")
     st.sidebar.markdown("---")
-
-def display_quote(content, title, author):
-    encoded_title = urllib.parse.quote(title)
-    detail_link = f"BookDetail?title={encoded_title}"
-    
-    quote_html = f"""
-    <div style="padding:10px; border-radius:5px; background-color:#f0f2f6; margin-bottom:10px;">
-        <p>{content}</p>
-        <a href="{detail_link}" style="text-decoration:none; color:#4a4a4a;">
-            {title} / {author}
-        </a>
-    </div>
-    """
-    st.markdown(quote_html, unsafe_allow_html=True)
 
 import urllib.parse
 import unicodedata
@@ -79,7 +65,7 @@ def load_book_info():
 
 def display_quote(content, title, author):
     encoded_title = urllib.parse.quote(title)
-    detail_link = f"BookDetail?title={encoded_title}"
+    detail_link = f"pages/BookDetail.py?title={encoded_title}"
     
     quote_html = f"""
     <div style="padding:10px; border-radius:5px; background-color:#f0f2f6; margin-bottom:10px;">

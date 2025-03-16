@@ -41,7 +41,7 @@ st.set_page_config(
 local_css("style.css")
 
 # サイドバー設定
-st.sidebar.image("images/booklight_ai_banner.png", use_column_width=True)
+st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
 st.sidebar.title("Booklight AI")
 st.sidebar.markdown("📚 あなたの読書をAIが照らす")
 st.sidebar.markdown("---")
@@ -49,10 +49,10 @@ st.sidebar.markdown("---")
 # サイドバーナビゲーション
 st.sidebar.markdown("### ナビゲーション")
 pages = {
-    "🏠 ホーム": "/",
-    "🔍 検索モード": "Search",
-    "💬 チャットモード": "Chat",
-    "📚 書籍一覧": "BookList"
+    "🏠 ホーム": "Home.py",
+    "🔍 検索モード": "pages/Search.py",
+    "💬 チャットモード": "pages/Chat.py",
+    "📚 書籍一覧": "pages/BookList.py"
 }
 
 for page_name, page_url in pages.items():
@@ -406,16 +406,30 @@ st.write("### 検索キーワード")
 if 'search_tags' not in st.session_state:
     st.session_state.search_tags = []
 
+# タグ追加のコールバック関数
 def add_tag():
     if st.session_state.new_tag.strip() and st.session_state.new_tag not in st.session_state.search_tags:
         st.session_state.search_tags.append(st.session_state.new_tag)
-        st.session_state.new_tag = ""
+        # 次回のレンダリング用にクリアフラグを設定
+        st.session_state.clear_tag_input = True
+        st.rerun()
 
 def remove_tag(tag_to_remove):
     st.session_state.search_tags = [tag for tag in st.session_state.search_tags if tag != tag_to_remove]
+    st.rerun()
 
 def clear_all_tags():
     st.session_state.search_tags = []
+    st.rerun()
+
+# 入力フォームの初期化
+if "new_tag" not in st.session_state:
+    st.session_state.new_tag = ""
+
+# クリアフラグの処理
+if "clear_tag_input" in st.session_state and st.session_state.clear_tag_input:
+    st.session_state.new_tag = ""
+    st.session_state.clear_tag_input = False
 
 col1, col2 = st.columns([3, 1])
 with col1:

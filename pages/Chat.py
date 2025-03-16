@@ -17,7 +17,7 @@ from langchain.prompts import PromptTemplate
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 
 # Home.pyから共通関数をインポート
-from Home import display_quote, load_highlights, local_css, normalize_japanese_text
+from Home import display_quote, load_highlights, normalize_japanese_text
 
 # 環境変数のロード
 load_dotenv()
@@ -30,6 +30,11 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded"
 )
+
+# CSSファイルを読み込む関数
+def local_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # チャット用カスタムCSS
 def add_chat_css():
@@ -130,7 +135,7 @@ local_css("style.css")
 add_chat_css()
 
 # サイドバー設定
-st.sidebar.image("images/booklight_ai_banner.png", use_column_width=True)
+st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
 st.sidebar.title("Booklight AI")
 st.sidebar.markdown("📚 あなたの読書をAIが照らす")
 st.sidebar.markdown("---")
@@ -138,10 +143,10 @@ st.sidebar.markdown("---")
 # サイドバーナビゲーション
 st.sidebar.markdown("### ナビゲーション")
 pages = {
-    "🏠 ホーム": "/",
-    "🔍 検索モード": "Search",
-    "💬 チャットモード": "Chat",
-    "📚 書籍一覧": "BookList"
+    "🏠 ホーム": "Home.py",
+    "🔍 検索モード": "pages/Search.py",
+    "💬 チャットモード": "pages/Chat.py",
+    "📚 書籍一覧": "pages/BookList.py"
 }
 
 for page_name, page_url in pages.items():
@@ -358,6 +363,27 @@ if "chat_history" in st.session_state:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# 送信ボタンのコールバック関数
+def on_submit():
+    if st.session_state.user_input.strip():
+        # 入力内容をコピー
+        current_input = st.session_state.user_input
+        # チャット処理実行
+        process_chat(current_input)
+        # 入力欄をクリアするフラグを設定
+        st.session_state.clear_input = True
+        # 画面を更新して結果を表示
+        st.rerun()
+
+# 入力フォームの初期化
+if "user_input" not in st.session_state:
+    st.session_state.user_input = ""
+
+# クリアフラグの初期化
+if "clear_input" in st.session_state and st.session_state.clear_input:
+    st.session_state.user_input = ""
+    st.session_state.clear_input = False
+
 # ユーザー入力フォーム（下部固定）
 with st.container():
     st.markdown('<div style="height: 5rem;"></div>', unsafe_allow_html=True)  # スペース確保
@@ -376,19 +402,11 @@ with st.container():
     
     with col2:
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)  # 位置調整
-        submit = st.button("送信", use_container_width=True)
+        submit = st.button("送信", on_click=on_submit, use_container_width=True)
     
-    # 入力処理
-    if submit or (user_input and user_input.endswith("\n")):
-        if user_input.strip():
-            # 入力内容をコピー
-            current_input = user_input
-            # 入力欄をクリア
-            st.session_state.user_input = ""
-            # チャット処理実行
-            process_chat(current_input)
-            # 画面を更新して結果を表示
-            st.rerun()
+    # Enterキーでの送信処理
+    if user_input and user_input.endswith("\n"):
+        on_submit()
 
 # 引用の詳細表示（折りたたみセクション）
 if "last_citations" in st.session_state and st.session_state.last_citations:

@@ -3,6 +3,32 @@ import pandas as pd
 import requests
 import urllib
 
+# ページ設定
+st.set_page_config(
+    page_title="書籍一覧 | Booklight AI", 
+    page_icon="📚",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
+
+# サイドバー設定
+st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
+st.sidebar.title("Booklight AI")
+st.sidebar.markdown("📚 あなたの読書をAIが照らす")
+st.sidebar.markdown("---")
+
+# サイドバーナビゲーション
+st.sidebar.markdown("### ナビゲーション")
+pages = {
+    "🏠 ホーム": "Home.py",
+    "🔍 検索モード": "pages/Search.py",
+    "💬 チャットモード": "pages/Chat.py",
+    "📚 書籍一覧": "pages/BookList.py"
+}
+
+for page_name, page_url in pages.items():
+    st.sidebar.page_link(page_url, label=page_name)
+
 # =============================================================================
 # 1. CSVから書籍データを読み込む関数
 # =============================================================================
@@ -87,7 +113,7 @@ for index, row in df.iterrows():
         # 書籍詳細ページへのリンクを作成
         # ※ ここで "<...>" で囲むと、カッコやスペースが含まれても途切れにくい
         encoded_title = urllib.parse.quote(title)
-        link_url = f"BookDetail?title={encoded_title}"
+        link_url = f"pages/BookDetail.py?title={encoded_title}"
         
         # Markdown記法で山カッコ付きリンク
         st.markdown(f"[詳細を見る](<{link_url}>)")
