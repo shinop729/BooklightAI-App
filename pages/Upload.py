@@ -52,60 +52,81 @@ st.sidebar.markdown("[📤 ハイライトアップロード](pages/Upload.py)")
 def process_kindle_highlights(file):
     """Kindleハイライトファイルを処理してDataFrameに変換"""
     try:
-        # テキストファイルを読み込み
-        content = file.getvalue().decode("utf-8")
+        # ファイル名から拡張子を取得
+        file_name = file.name.lower()
         
-        # 行ごとに分割
-        lines = content.split("\n")
-        
-        # データを格納するリスト
-        data = []
-        current_book = ""
-        current_author = ""
-        current_highlight = ""
-        
-        for line in lines:
-            line = line.strip()
+        # CSVファイルの場合
+        if file_name.endswith('.csv'):
+            # pandasのread_csvを使用して直接CSVを解析
+            df = pd.read_csv(file, encoding="utf-8")
             
-            # 空行はスキップ
-            if not line:
-                continue
+            # 必要なカラムが存在するか確認
+            required_columns = ["書籍タイトル", "著者", "ハイライト内容"]
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                st.warning(f"CSVファイルに以下のカラムがありません: {', '.join(missing_columns)}")
+                st.info("CSVファイルには「書籍タイトル」「著者」「ハイライト内容」の3つのカラムが必要です。")
+                return None
                 
-            # 書籍タイトルと著者の行
-            if "(" in line and ")" in line and not line.startswith("- "):
-                parts = line.split("(")
-                if len(parts) >= 2:
-                    current_book = parts[0].strip()
-                    current_author = parts[1].replace(")", "").strip()
-                    current_highlight = ""
+            return df
+            
+        # テキストファイルの場合
+        else:
+            # テキストファイルを読み込み
+            content = file.getvalue().decode("utf-8")
+            
+            # 行ごとに分割
+            lines = content.split("\n")
+            
+            # データを格納するリスト
+            data = []
+            current_book = ""
+            current_author = ""
+            current_highlight = ""
+            
+            for line in lines:
+                line = line.strip()
+                
+                # 空行はスキップ
+                if not line:
+                    continue
                     
-            # ハイライト内容の行
-            elif line.startswith("- "):
-                if current_highlight:  # 前のハイライトがあれば保存
-                    data.append({
-                        "書籍タイトル": current_book,
-                        "著者": current_author,
-                        "ハイライト内容": current_highlight
-                    })
-                
-                # 新しいハイライト
-                current_highlight = line[2:].strip()
-                
-            # ハイライトの続き
-            else:
-                current_highlight += " " + line
-        
-        # 最後のハイライトを追加
-        if current_highlight:
-            data.append({
-                "書籍タイトル": current_book,
-                "著者": current_author,
-                "ハイライト内容": current_highlight
-            })
-        
-        # DataFrameに変換
-        df = pd.DataFrame(data)
-        return df
+                # 書籍タイトルと著者の行
+                if "(" in line and ")" in line and not line.startswith("- "):
+                    parts = line.split("(")
+                    if len(parts) >= 2:
+                        current_book = parts[0].strip()
+                        current_author = parts[1].replace(")", "").strip()
+                        current_highlight = ""
+                        
+                # ハイライト内容の行
+                elif line.startswith("- "):
+                    if current_highlight:  # 前のハイライトがあれば保存
+                        data.append({
+                            "書籍タイトル": current_book,
+                            "著者": current_author,
+                            "ハイライト内容": current_highlight
+                        })
+                    
+                    # 新しいハイライト
+                    current_highlight = line[2:].strip()
+                    
+                # ハイライトの続き
+                else:
+                    current_highlight += " " + line
+            
+            # 最後のハイライトを追加
+            if current_highlight:
+                data.append({
+                    "書籍タイトル": current_book,
+                    "著者": current_author,
+                    "ハイライト内容": current_highlight
+                })
+            
+            # DataFrameに変換
+            df = pd.DataFrame(data)
+            return df
     
     except Exception as e:
         st.error(f"ファイル処理中にエラーが発生しました: {str(e)}")
@@ -154,9 +175,9 @@ def main():
     
     # ファイルアップロード
     st.write("#### ハイライトファイルのアップロード")
-    st.write("Kindleアプリからエクスポートしたハイライトファイル（.txt）をアップロードしてください。")
+    st.write("Kindleアプリからエクスポートしたハイライトファイル（.txt）またはCSVファイル（.csv）をアップロードしてください。")
     
-    uploaded_file = st.file_uploader("Kindleハイライトファイル（.txt）を選択", type=["txt"])
+    uploaded_file = st.file_uploader("ハイライトファイルを選択", type=["txt", "csv"])
     
     if uploaded_file is not None:
         # ファイルを処理
