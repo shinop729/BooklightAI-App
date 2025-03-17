@@ -24,12 +24,6 @@ def setup_app():
     
     st.set_page_config(page_title="Booklight AI", layout="wide")
     
-    # デバッグ情報を表示
-    st.write("環境変数のデバッグ情報:")
-    st.write(f"GOOGLE_CLIENT_ID: {os.getenv('GOOGLE_CLIENT_ID')}")
-    st.write(f"GOOGLE_CLIENT_SECRET: {os.getenv('GOOGLE_CLIENT_SECRET')}")
-    st.write(f"REDIRECT_URI: {os.getenv('REDIRECT_URI')}")
-    
     st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
     st.sidebar.title("Booklight AI")
     st.sidebar.markdown("📚 あなたの読書をAIが照らす")
@@ -174,14 +168,9 @@ def main():
             st.rerun()  # ページをリロード
     else:
         st.sidebar.markdown("### ログイン")
-        st.sidebar.write("ログインデバッグ情報:")
         auth_url = auth.get_google_auth_url()
-        st.sidebar.write(f"auth_url: {auth_url}")
         if auth_url:
             st.sidebar.markdown(f"[Googleでログイン]({auth_url})")
-            # 直接リンクも表示
-            st.sidebar.write("直接リンク:")
-            st.sidebar.write(auth_url)
         else:
             st.sidebar.error("認証設定が不完全です。.envファイルを確認してください。")
     

@@ -34,24 +34,9 @@ def create_user_directories():
 
 def get_google_auth_url():
     """Googleログイン用のURLを生成"""
-    # 環境変数の値を表示
-    st.write(f"GOOGLE_CLIENT_ID: {GOOGLE_CLIENT_ID}")
-    st.write(f"GOOGLE_CLIENT_SECRET: {GOOGLE_CLIENT_SECRET}")
-    st.write(f"REDIRECT_URI: {REDIRECT_URI}")
-    
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         st.error("Google OAuth認証情報が設定されていません。.envファイルを確認してください。")
         return None
-    
-    # デバッグ情報を表示
-    st.write(f"REDIRECT_URI: {REDIRECT_URI}")
-    
-    # Google Cloud Consoleの設定を確認
-    st.write("Google Cloud Consoleで以下の設定を確認してください:")
-    st.write("1. 承認済みのリダイレクトURIに以下が含まれていること:")
-    st.write(f"   - {REDIRECT_URI}")
-    st.write("2. 承認済みのJavaScript生成元に以下が含まれていること:")
-    st.write(f"   - http://localhost:8505")
     
     flow = Flow.from_client_config(
         {
@@ -77,8 +62,6 @@ def get_google_auth_url():
 
 def exchange_code_for_token(code):
     """認証コードをトークンと交換"""
-    # デバッグ情報を表示
-    st.write(f"REDIRECT_URI in exchange_code_for_token: {REDIRECT_URI}")
     
     flow = Flow.from_client_config(
         {
@@ -157,9 +140,6 @@ def handle_auth_flow():
     """認証フローを処理"""
     # URLパラメータからcodeを取得
     code = st.query_params.get("code", None)
-    
-    # デバッグ情報を表示
-    st.write(f"Code parameter: {code}")
     
     if code:
         try:
