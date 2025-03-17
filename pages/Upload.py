@@ -153,7 +153,7 @@ def save_highlights_for_user(df, user_id):
     
     return csv_path, txt_path
 
-def generate_book_summaries(df, user_id):
+def generate_book_summaries(df, user_id, update_progress=None):
     """ハイライトから書籍ごとのサマリを生成して保存"""
     try:
         # 処理開始メッセージ
@@ -175,7 +175,7 @@ def generate_book_summaries(df, user_id):
         
         # サマリを生成して保存
         st.info("サマリ生成処理を実行中...")
-        summary_path = generator.generate_and_save_summaries(df, user_id)
+        summary_path = generator.generate_and_save_summaries(df, user_id, update_progress)
         
         # 成功メッセージ
         st.success(f"サマリ生成が完了しました！")
@@ -228,6 +228,17 @@ def main():
                 st.success(f"ハイライトを保存しました！")
                 st.info(f"保存先: {csv_path}")
                 
+                # 書籍数を取得
+                book_count = len(df.groupby(["書籍タイトル", "著者"]))
+                
+                # セッション状態に進捗情報を初期化
+                st.session_state.summary_generation_active = True
+                st.session_state.summary_progress = 0
+                st.session_state.summary_current = 0
+                st.session_state.summary_total = book_count
+                st.session_state.summary_current_book = ""
+                st.session_state.summary_status = "処理中"
+                
                 # サマリ生成の進捗状況を表示するためのプレースホルダー
                 summary_status = st.empty()
                 summary_status.info("書籍ごとのサマリを生成中です。これには数分かかる場合があります...")
@@ -235,14 +246,20 @@ def main():
                 # プログレスバーを表示
                 progress_bar = st.progress(0)
                 
-                # 書籍数を取得
-                book_count = len(df.groupby(["書籍タイトル", "著者"]))
-                
                 # 進捗状況を更新するコールバック関数
-                def update_progress(current, total):
+                def update_progress(current, total, book_title):
                     progress = current / total
+                    # セッション状態を更新
+                    st.session_state.summary_progress = progress
+                    st.session_state.summary_current = current
+                    st.session_state.summary_total = total
+                    st.session_state.summary_current_book = book_title
+                    
+                    # UIを更新
                     progress_bar.progress(progress)
-                    summary_status.info(f"書籍ごとのサマリを生成中です... ({current}/{total} 冊完了)")
+                    percent = int(progress * 100)
+                    summary_status.info(f"書籍ごとのサマリを生成中です... {percent}% ({current}/{total} 冊完了)")
+                    st.caption(f"現在処理中: 「{book_title}」")
                 
                 # サマリ生成処理の実行
                 with st.spinner("サマリ生成中..."):
@@ -250,6 +267,10 @@ def main():
                     summary_path = generate_book_summaries(df, user_id, update_progress)
                 
                 if summary_path:
+                    # 完了状態を設定
+                    st.session_state.summary_status = "完了"
+                    st.session_state.summary_progress = 1.0
+                    
                     summary_status.success(f"書籍ごとのサマリを生成しました！")
                     st.info(f"サマリ保存先: {summary_path}")
                     
@@ -271,6 +292,8 @@ def main():
                     else:
                         st.error(f"サマリファイルが見つかりません: {summary_path}")
                 else:
+                    # エラー状態を設定
+                    st.session_state.summary_status = "エラー"
                     summary_status.error("サマリの生成に失敗しました。")
                 
                 # 既存のハイライトとの統合オプション

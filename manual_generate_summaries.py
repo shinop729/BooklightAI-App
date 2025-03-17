@@ -41,9 +41,14 @@ def main():
     print("Initializing BookSummaryGenerator...")
     generator = BookSummaryGenerator(api_key=api_key)
     
-    # Generate summaries
+    # Define a progress callback function
+    def update_progress(current, total, book_title):
+        progress_percent = (current / total) * 100
+        print(f"Progress: {current}/{total} books ({progress_percent:.1f}%) - Current book: {book_title}")
+    
+    # Generate summaries with progress updates
     print("Generating summaries...")
-    output_path = generator.generate_and_save_summaries(df, user_id)
+    output_path = generator.generate_and_save_summaries(df, user_id, update_progress)
     
     print(f"Summaries generated and saved to: {output_path}")
     

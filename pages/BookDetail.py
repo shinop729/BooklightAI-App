@@ -13,6 +13,7 @@ from pathlib import Path
 # 親ディレクトリをパスに追加（Homeモジュールをインポートするため）
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import auth
+from progress_display import display_summary_progress_in_sidebar
 
 # ページ設定
 st.set_page_config(
@@ -62,6 +63,9 @@ st.sidebar.markdown("[🔍 検索モード](pages/Search.py)")
 st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
 st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
 st.sidebar.markdown("[📤 ハイライトアップロード](pages/Upload.py)")
+
+# サマリ生成の進捗状況をサイドバーに表示
+display_summary_progress_in_sidebar()
 
 # 認証フローの処理
 auth_success = auth.handle_auth_flow()

@@ -11,6 +11,7 @@ import openai
 import urllib.parse
 from pathlib import Path
 import auth
+from progress_display import display_summary_progress_in_sidebar
 
 def local_css(file_name):
     """Load and inject a local CSS file into the Streamlit app"""
@@ -179,6 +180,9 @@ def main():
     st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
     st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
     st.sidebar.markdown("[📤 ハイライトアップロード](pages/Upload.py)")
+    
+    # サマリ生成の進捗状況をサイドバーに表示
+    display_summary_progress_in_sidebar()
     
     # ハイライトの読み込み（ログイン中はユーザー固有のデータを使用）
     if auth.is_user_authenticated():

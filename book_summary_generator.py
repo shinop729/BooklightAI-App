@@ -74,7 +74,7 @@ class BookSummaryGenerator:
         Args:
             df (pandas.DataFrame): DataFrame containing book highlights
             update_progress (callable, optional): Callback function to update progress
-                The function should accept two parameters: current and total
+                The function should accept three parameters: current, total, and book_title
             
         Returns:
             pandas.DataFrame: DataFrame containing book summaries
@@ -92,6 +92,10 @@ class BookSummaryGenerator:
             author = row["著者"]
             highlights = row["ハイライト内容"]
             
+            # Update progress with current book title if callback is provided
+            if update_progress is not None:
+                update_progress(i+1, total_books, book_title)
+            
             print(f"[{i+1}/{total_books}] Generating summary for: {book_title}")
             summary = self.generate_summary(book_title, author, highlights)
             
@@ -100,16 +104,6 @@ class BookSummaryGenerator:
                 "著者": author,
                 "要約": summary
             })
-            
-            # Update progress if callback is provided
-            if update_progress is not None:
-                update_progress(i+1, total_books)
-            
-            # Save intermediate results after each book
-            if (i+1) % 5 == 0 or i+1 == total_books:
-                print(f"Saving intermediate results after processing {i+1} books...")
-                temp_df = pd.DataFrame(summaries)
-                temp_df.to_csv(f"temp_summaries_{i+1}.csv", index=False)
         
         # Create a DataFrame from the summaries
         print("All summaries generated successfully!")
@@ -151,7 +145,7 @@ class BookSummaryGenerator:
             highlights_df (pandas.DataFrame): DataFrame containing book highlights
             user_id (str): User ID
             update_progress (callable, optional): Callback function to update progress
-                The function should accept two parameters: current and total
+                The function should accept three parameters: current, total, and book_title
             
         Returns:
             Path: Path to the saved CSV file
