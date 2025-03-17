@@ -340,8 +340,8 @@ def display_search_results(results, max_chars=300, show_feedback=True):
         else:
             display_content = content
         
-        # 引用表示関数を使用
-        display_quote(display_content, title, author)
+        # 引用表示関数を使用 - 一意のインデックスを渡す
+        display_quote(display_content, title, author, index=f"search_{i}")
 
 # -------------------------------------------
 # 検索モード (改善版)
