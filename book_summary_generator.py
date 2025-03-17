@@ -67,12 +67,14 @@ class BookSummaryGenerator:
             # Return a placeholder summary instead of an error message
             return f"この書籍のAIによる要約は生成できませんでした。\n\nエラー詳細: {e}\n\n以下はハイライトの一部です:\n\n{highlights[:500]}..."
     
-    def generate_summaries_from_dataframe(self, df):
+    def generate_summaries_from_dataframe(self, df, update_progress=None):
         """
         Generate summaries for each book in the DataFrame.
         
         Args:
             df (pandas.DataFrame): DataFrame containing book highlights
+            update_progress (callable, optional): Callback function to update progress
+                The function should accept two parameters: current and total
             
         Returns:
             pandas.DataFrame: DataFrame containing book summaries
@@ -80,7 +82,8 @@ class BookSummaryGenerator:
         # Group highlights by book title and author
         print("Grouping highlights by book title and author...")
         grouped = df.groupby(["書籍タイトル", "著者"])["ハイライト内容"].apply(lambda x: "\n".join(x)).reset_index()
-        print(f"Found {len(grouped)} books to summarize")
+        total_books = len(grouped)
+        print(f"Found {total_books} books to summarize")
         
         # Generate summaries for each book
         summaries = []
@@ -89,7 +92,7 @@ class BookSummaryGenerator:
             author = row["著者"]
             highlights = row["ハイライト内容"]
             
-            print(f"[{i+1}/{len(grouped)}] Generating summary for: {book_title}")
+            print(f"[{i+1}/{total_books}] Generating summary for: {book_title}")
             summary = self.generate_summary(book_title, author, highlights)
             
             summaries.append({
@@ -98,8 +101,12 @@ class BookSummaryGenerator:
                 "要約": summary
             })
             
+            # Update progress if callback is provided
+            if update_progress is not None:
+                update_progress(i+1, total_books)
+            
             # Save intermediate results after each book
-            if (i+1) % 5 == 0 or i+1 == len(grouped):
+            if (i+1) % 5 == 0 or i+1 == total_books:
                 print(f"Saving intermediate results after processing {i+1} books...")
                 temp_df = pd.DataFrame(summaries)
                 temp_df.to_csv(f"temp_summaries_{i+1}.csv", index=False)
@@ -136,19 +143,21 @@ class BookSummaryGenerator:
             print(f"Summaries saved to fallback location: {fallback_path}")
             return fallback_path
     
-    def generate_and_save_summaries(self, highlights_df, user_id):
+    def generate_and_save_summaries(self, highlights_df, user_id, update_progress=None):
         """
         Generate summaries for each book in the highlights DataFrame and save them to a CSV file.
         
         Args:
             highlights_df (pandas.DataFrame): DataFrame containing book highlights
             user_id (str): User ID
+            update_progress (callable, optional): Callback function to update progress
+                The function should accept two parameters: current and total
             
         Returns:
             Path: Path to the saved CSV file
         """
         # Generate summaries
-        summaries_df = self.generate_summaries_from_dataframe(highlights_df)
+        summaries_df = self.generate_summaries_from_dataframe(highlights_df, update_progress)
         
         # Save the summaries to a CSV file
         user_dir = Path("user_data") / "docs" / user_id

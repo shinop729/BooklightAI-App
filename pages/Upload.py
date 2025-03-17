@@ -232,9 +232,22 @@ def main():
                 summary_status = st.empty()
                 summary_status.info("書籍ごとのサマリを生成中です。これには数分かかる場合があります...")
                 
+                # プログレスバーを表示
+                progress_bar = st.progress(0)
+                
+                # 書籍数を取得
+                book_count = len(df.groupby(["書籍タイトル", "著者"]))
+                
+                # 進捗状況を更新するコールバック関数
+                def update_progress(current, total):
+                    progress = current / total
+                    progress_bar.progress(progress)
+                    summary_status.info(f"書籍ごとのサマリを生成中です... ({current}/{total} 冊完了)")
+                
                 # サマリ生成処理の実行
                 with st.spinner("サマリ生成中..."):
-                    summary_path = generate_book_summaries(df, user_id)
+                    # 進捗状況を更新するコールバック関数を渡す
+                    summary_path = generate_book_summaries(df, user_id, update_progress)
                 
                 if summary_path:
                     summary_status.success(f"書籍ごとのサマリを生成しました！")

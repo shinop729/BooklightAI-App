@@ -457,5 +457,5 @@ if "last_citations" in st.session_state and st.session_state.last_citations:
             author = doc.metadata.get("original_author", doc.metadata.get("author", ""))
             content = doc.metadata.get("original_content", doc.page_content)
             
-            # 引用表示関数を使用
-            display_quote(content, title, author)
+        # 引用表示関数を使用 (ユニークなキーを生成)
+        display_quote(content, title, author, f"chat_citation_{i}")
