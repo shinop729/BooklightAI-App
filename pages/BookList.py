@@ -106,27 +106,84 @@ def load_book_data():
 # 2. Google Books API から書影URLを取得する関数
 # =============================================================================
 @st.cache_data
-def fetch_cover_image(title: str) -> str:
+def fetch_cover_image(title: str, author: str = "") -> str:
     """
-    タイトル文字列をGoogle Books APIで検索し、最初にヒットした書影URLを返す。
+    タイトルと著者名を使ってGoogle Books APIを検索し、
+    ISBNを取得してから書影画像のURLを返す。
+    より正確な書影画像を取得するために、以下の手順で処理する：
+    1. タイトルと著者名を使って検索
+    2. 検索結果からISBNを取得
+    3. ISBNを使って再検索し、書影画像のURLを取得
     """
     if not title.strip():
         return ""
-    query = urllib.parse.quote(title)
-    url = f"https://www.googleapis.com/books/v1/volumes?q={query}&maxResults=1"
     
-    resp = requests.get(url)
-    if resp.status_code != 200:
+    # 1. タイトルと著者名を使って検索
+    query_parts = []
+    if title:
+        query_parts.append(f"intitle:{urllib.parse.quote(title)}")
+    if author:
+        query_parts.append(f"inauthor:{urllib.parse.quote(author)}")
+    
+    query = "+".join(query_parts)
+    url = f"https://www.googleapis.com/books/v1/volumes?q={query}&maxResults=5"
+    
+    try:
+        resp = requests.get(url)
+        if resp.status_code != 200:
+            return ""
+        
+        data = resp.json()
+        items = data.get("items", [])
+        if not items:
+            # 検索結果がない場合は、タイトルのみで検索
+            fallback_query = urllib.parse.quote(title)
+            fallback_url = f"https://www.googleapis.com/books/v1/volumes?q={fallback_query}&maxResults=1"
+            resp = requests.get(fallback_url)
+            if resp.status_code != 200:
+                return ""
+            
+            data = resp.json()
+            items = data.get("items", [])
+            if not items:
+                return ""
+        
+        # 2. 検索結果からISBNを取得
+        isbn = None
+        for item in items:
+            volume_info = item.get("volumeInfo", {})
+            industry_identifiers = volume_info.get("industryIdentifiers", [])
+            
+            # ISBNを探す
+            for identifier in industry_identifiers:
+                if identifier.get("type") in ["ISBN_13", "ISBN_10"]:
+                    isbn = identifier.get("identifier")
+                    break
+            
+            if isbn:
+                break
+        
+        # ISBNが見つかった場合は、ISBNで再検索
+        if isbn:
+            isbn_url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
+            isbn_resp = requests.get(isbn_url)
+            if isbn_resp.status_code == 200:
+                isbn_data = isbn_resp.json()
+                isbn_items = isbn_data.get("items", [])
+                if isbn_items:
+                    volume_info = isbn_items[0].get("volumeInfo", {})
+                    image_links = volume_info.get("imageLinks", {})
+                    return image_links.get("thumbnail", "")
+        
+        # ISBNが見つからなかった場合や、ISBNでの再検索に失敗した場合は、
+        # 最初の検索結果から書影画像のURLを返す
+        volume_info = items[0].get("volumeInfo", {})
+        image_links = volume_info.get("imageLinks", {})
+        return image_links.get("thumbnail", "")
+    
+    except Exception as e:
+        print(f"Error fetching cover image: {e}")
         return ""
-    
-    data = resp.json()
-    items = data.get("items", [])
-    if not items:
-        return ""
-    
-    volume_info = items[0].get("volumeInfo", {})
-    image_links = volume_info.get("imageLinks", {})
-    return image_links.get("thumbnail", "")
 
 # =============================================================================
 # 3. ページ描画ロジック（トップレベル）
@@ -146,8 +203,11 @@ for index, row in df.iterrows():
     title = row["書籍タイトル"]
     summary = row["要約"]
     
-    # 書影取得
-    cover_url = fetch_cover_image(title)
+    # 著者名を取得（存在する場合）
+    author = row.get("著者", "")
+    
+    # 書影取得（著者名も渡す）
+    cover_url = fetch_cover_image(title, author)
     
     # 横並びに表示
     col1, col2 = st.columns([1, 3])
