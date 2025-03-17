@@ -111,7 +111,7 @@ bm25_highlight_retriever = BM25Retriever.from_documents(highlight_docs)
 # ハイライトVectorStore
 # -------------------------------------------
 @st.cache_resource
-def get_highlight_vectorstore(docs):
+def get_highlight_vectorstore(_docs):
     # ユーザー固有のベクトルストアを作成
     if auth.is_user_authenticated():
         user_id = auth.get_current_user_id()
@@ -120,7 +120,7 @@ def get_highlight_vectorstore(docs):
         persist_dir = "./csv_chroma_db/highlights_v2"
     
     return Chroma.from_documents(
-        documents=docs,
+        documents=_docs,
         embedding=embeddings_model,
         persist_directory=persist_dir
     )

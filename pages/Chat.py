@@ -246,6 +246,8 @@ def get_highlight_vectorstore():
         persist_directory=persist_dir
     )
 
+# 注意: この関数は内部でhighlight_docsを生成するため、
+# 引数として渡す必要はありません
 highlight_vs = get_highlight_vectorstore()
 
 # -------------------------------------------
