@@ -82,9 +82,13 @@ def load_book_info():
     return book_info
 
 def display_quote(content, title, author):
+    """
+    Home.py用の引用表示関数 - 書籍詳細ページへのリンク付き
+    """
     encoded_title = urllib.parse.quote(title)
     detail_link = f"pages/BookDetail.py?title={encoded_title}"
     
+    # ホームページ用のスタイル（ダークモード対応）
     quote_html = f"""
     <div style="padding:15px; border-radius:8px; background-color:#2a2a2a; margin-bottom:15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
         <p style="color:#ffffff; font-size:16px; line-height:1.6; margin-bottom:12px;">{content}</p>

@@ -15,6 +15,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# CSSのロード関数
+def local_css(file_name):
+    """Load and inject a local CSS file into the Streamlit app"""
+    with open(file_name) as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+# CSSのロード
+local_css("style.css")
+
 # サイドバー設定
 st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
 st.sidebar.title("Booklight AI")
@@ -190,9 +199,6 @@ def fetch_cover_image(title: str) -> str:
 # 7) ページを表示
 # -----------------------
 def main():
-    # まず最初にスタイルを設定
-    set_styles()
-    
     # ページタイトル
     st.title("書籍詳細ページ")
     
