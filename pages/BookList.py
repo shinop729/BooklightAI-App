@@ -2,6 +2,13 @@ import streamlit as st
 import pandas as pd
 import requests
 import urllib
+import os
+import sys
+from pathlib import Path
+
+# 親ディレクトリをパスに追加（Homeモジュールをインポートするため）
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import auth
 
 # ページ設定
 st.set_page_config(
@@ -17,12 +24,37 @@ st.sidebar.title("Booklight AI")
 st.sidebar.markdown("📚 あなたの読書をAIが照らす")
 st.sidebar.markdown("---")
 
+# サイドバーにログイン/ログアウトボタンを追加
+if auth.is_user_authenticated():
+    user_info = st.session_state.user_info
+    st.sidebar.markdown(f"### ようこそ、{user_info.get('name', 'ユーザー')}さん！")
+    st.sidebar.markdown(f"📧 {user_info.get('email', '')}")
+    
+    if st.sidebar.button("ログアウト"):
+        auth.logout()
+        st.rerun()  # ページをリロード
+else:
+    st.sidebar.markdown("### ログイン")
+    auth_url = auth.get_google_auth_url()
+    if auth_url:
+        st.sidebar.markdown(f"[Googleでログイン]({auth_url})")
+    else:
+        st.sidebar.error("認証設定が不完全です。.envファイルを確認してください。")
+
 # サイドバーナビゲーション
+st.sidebar.markdown("---")
 st.sidebar.markdown("### ナビゲーション")
 st.sidebar.markdown("[🏠 ホーム](Home.py)")
 st.sidebar.markdown("[🔍 検索モード](pages/Search.py)")
 st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
 st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
+st.sidebar.markdown("[📤 ハイライトアップロード](pages/Upload.py)")
+
+# 認証フローの処理
+auth_success = auth.handle_auth_flow()
+if auth_success:
+    st.success("ログインに成功しました！")
+    st.rerun()  # ページをリロード
 
 # =============================================================================
 # 1. CSVから書籍データを読み込む関数
@@ -30,9 +62,46 @@ st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
 @st.cache_data
 def load_book_data():
     """
-    docs/BookSummaries.csv を読み込み、「書籍タイトル」「要約」列を保持した DataFrame を返す。
+    書籍データを読み込む（ユーザー固有のデータがあれば使用）
     """
-    df = pd.read_csv("docs/BookSummaries.csv")
+    # ユーザーがログインしている場合は、ユーザー固有のデータを使用
+    if auth.is_user_authenticated():
+        user_id = auth.get_current_user_id()
+        user_summaries_path = auth.USER_DATA_DIR / "docs" / user_id / "BookSummaries.csv"
+        
+        # ユーザー固有のファイルが存在する場合はそれを使用
+        if user_summaries_path.exists():
+            df = pd.read_csv(user_summaries_path)
+        else:
+            # ユーザー固有のハイライトからサマリーを生成
+            user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
+            if user_highlights_path.exists():
+                # ハイライトからサマリーを生成
+                highlights_df = pd.read_csv(user_highlights_path)
+                
+                # 書籍ごとにハイライトをグループ化
+                grouped = highlights_df.groupby("書籍タイトル")["ハイライト内容"].agg(lambda x: "\n".join(x)).reset_index()
+                grouped.rename(columns={"ハイライト内容": "要約"}, inplace=True)
+                
+                # 著者情報を追加
+                authors = {}
+                for _, row in highlights_df.iterrows():
+                    title = row["書籍タイトル"]
+                    author = row["著者"]
+                    if title not in authors:
+                        authors[title] = author
+                
+                # 著者列を追加
+                grouped["著者"] = grouped["書籍タイトル"].map(authors)
+                
+                df = grouped
+            else:
+                # ユーザー固有のデータがない場合は共通のファイルを使用
+                df = pd.read_csv("docs/BookSummaries.csv")
+    else:
+        # ログインしていない場合は共通のファイルを使用
+        df = pd.read_csv("docs/BookSummaries.csv")
+    
     df.fillna("", inplace=True)
     # 空のタイトル行を除外
     df = df[df["書籍タイトル"] != ""]

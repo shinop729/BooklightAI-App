@@ -5,11 +5,13 @@ import numpy as np
 import unicodedata
 import re
 import os
+import sys
 import openai
 import html
 import urllib
 from dotenv import load_dotenv
 from datetime import datetime
+from pathlib import Path
 
 from langchain.docstore.document import Document
 from langchain.chat_models import ChatOpenAI
@@ -22,8 +24,12 @@ from langchain.schema import SystemMessage, HumanMessage
 # タグ入力UIライブラリ
 from streamlit_tags import st_tags
 
+# 親ディレクトリをパスに追加（Homeモジュールをインポートするため）
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import auth
+
 # Home.pyから共通関数をインポート
-from Home import display_quote, load_highlights, local_css, normalize_japanese_text, load_book_info
+from Home import display_quote, load_highlights, local_css, normalize_japanese_text, load_book_info, load_user_highlights
 
 # 環境変数のロード
 load_dotenv()
@@ -46,15 +52,37 @@ st.sidebar.title("Booklight AI")
 st.sidebar.markdown("📚 あなたの読書をAIが照らす")
 st.sidebar.markdown("---")
 
+# サイドバーにログイン/ログアウトボタンを追加
+if auth.is_user_authenticated():
+    user_info = st.session_state.user_info
+    st.sidebar.markdown(f"### ようこそ、{user_info.get('name', 'ユーザー')}さん！")
+    st.sidebar.markdown(f"📧 {user_info.get('email', '')}")
+    
+    if st.sidebar.button("ログアウト"):
+        auth.logout()
+        st.rerun()  # ページをリロード
+else:
+    st.sidebar.markdown("### ログイン")
+    auth_url = auth.get_google_auth_url()
+    if auth_url:
+        st.sidebar.markdown(f"[Googleでログイン]({auth_url})")
+    else:
+        st.sidebar.error("認証設定が不完全です。.envファイルを確認してください。")
+
 # サイドバーナビゲーション
+st.sidebar.markdown("---")
 st.sidebar.markdown("### ナビゲーション")
 st.sidebar.markdown("[🏠 ホーム](Home.py)")
 st.sidebar.markdown("[🔍 検索モード](pages/Search.py)")
 st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
 st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
+st.sidebar.markdown("[📤 ハイライトアップロード](pages/Upload.py)")
 
-# 書籍情報を読み込み
-book_info = load_book_info()
+# 認証フローの処理
+auth_success = auth.handle_auth_flow()
+if auth_success:
+    st.success("ログインに成功しました！")
+    st.rerun()  # ページをリロード
 
 # -------------------------------------------
 # OpenAI Embeddings
@@ -63,8 +91,18 @@ embeddings_model = OpenAIEmbeddings(
     model="text-embedding-3-small"
 )
 
-# ハイライトのロード
-highlight_docs = load_highlights()
+# ユーザー固有のデータを使用するかどうか
+if auth.is_user_authenticated():
+    user_id = auth.get_current_user_id()
+    # ユーザー固有の書籍情報を読み込み
+    book_info = load_book_info(user_id)
+    # ユーザー固有のハイライトを読み込み
+    highlight_docs = load_user_highlights(user_id)
+    st.info(f"{st.session_state.user_info.get('name', 'ユーザー')}さんのハイライトデータを使用して検索します。")
+else:
+    # 共通の書籍情報とハイライトを読み込み
+    book_info = load_book_info()
+    highlight_docs = load_highlights()
 
 # BM25（ハイブリッド検索用）
 bm25_highlight_retriever = BM25Retriever.from_documents(highlight_docs)
@@ -73,14 +111,21 @@ bm25_highlight_retriever = BM25Retriever.from_documents(highlight_docs)
 # ハイライトVectorStore
 # -------------------------------------------
 @st.cache_resource
-def get_highlight_vectorstore():
+def get_highlight_vectorstore(docs):
+    # ユーザー固有のベクトルストアを作成
+    if auth.is_user_authenticated():
+        user_id = auth.get_current_user_id()
+        persist_dir = f"./csv_chroma_db/highlights_user_{user_id}"
+    else:
+        persist_dir = "./csv_chroma_db/highlights_v2"
+    
     return Chroma.from_documents(
-        documents=highlight_docs,
+        documents=docs,
         embedding=embeddings_model,
-        persist_directory="./csv_chroma_db/highlights_v2"
+        persist_directory=persist_dir
     )
 
-highlight_vs = get_highlight_vectorstore()
+highlight_vs = get_highlight_vectorstore(highlight_docs)
 
 # -------------------------------------------
 # 書籍タイトル＆要約のEmbeddingsを管理

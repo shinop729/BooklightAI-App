@@ -6,6 +6,13 @@ import unicodedata
 import re
 import html
 from typing import List
+import os
+import sys
+from pathlib import Path
+
+# 親ディレクトリをパスに追加（Homeモジュールをインポートするため）
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import auth
 
 # ページ設定
 st.set_page_config(
@@ -30,12 +37,37 @@ st.sidebar.title("Booklight AI")
 st.sidebar.markdown("📚 あなたの読書をAIが照らす")
 st.sidebar.markdown("---")
 
+# サイドバーにログイン/ログアウトボタンを追加
+if auth.is_user_authenticated():
+    user_info = st.session_state.user_info
+    st.sidebar.markdown(f"### ようこそ、{user_info.get('name', 'ユーザー')}さん！")
+    st.sidebar.markdown(f"📧 {user_info.get('email', '')}")
+    
+    if st.sidebar.button("ログアウト"):
+        auth.logout()
+        st.rerun()  # ページをリロード
+else:
+    st.sidebar.markdown("### ログイン")
+    auth_url = auth.get_google_auth_url()
+    if auth_url:
+        st.sidebar.markdown(f"[Googleでログイン]({auth_url})")
+    else:
+        st.sidebar.error("認証設定が不完全です。.envファイルを確認してください。")
+
 # サイドバーナビゲーション
+st.sidebar.markdown("---")
 st.sidebar.markdown("### ナビゲーション")
 st.sidebar.markdown("[🏠 ホーム](Home.py)")
 st.sidebar.markdown("[🔍 検索モード](pages/Search.py)")
 st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
 st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
+st.sidebar.markdown("[📤 ハイライトアップロード](pages/Upload.py)")
+
+# 認証フローの処理
+auth_success = auth.handle_auth_flow()
+if auth_success:
+    st.success("ログインに成功しました！")
+    st.rerun()  # ページをリロード
 
 # 1) 書籍要約を読み込む (BookSummaries.csv)
 @st.cache_data
@@ -190,8 +222,86 @@ def fetch_cover_image(title: str) -> str:
     image_links = volume_info.get("imageLinks", {})
     return image_links.get("thumbnail", "")
 
+# =============================================================================
+# 7) ユーザー固有のハイライトを読み込む関数
+# =============================================================================
+@st.cache_data
+def load_user_highlights(user_id):
+    """ユーザー固有のハイライトを読み込む"""
+    user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
+    
+    # ユーザー固有のハイライトファイルが存在しない場合は共通のファイルを使用
+    if not user_highlights_path.exists():
+        return load_highlights()
+    
+    df = pd.read_csv(user_highlights_path)
+    df.fillna("", inplace=True)
+    
+    highlights = []
+    for _, row in df.iterrows():
+        title = row["書籍タイトル"]
+        author = row["著者"]
+        content = row["ハイライト内容"]
+        highlights.append({
+            "title": title,
+            "author": author,
+            "content": content
+        })
+    return highlights
+
+# =============================================================================
+# 8) ユーザー固有の書籍要約を読み込む関数
+# =============================================================================
+@st.cache_data
+def load_user_book_summaries(user_id):
+    """ユーザー固有の書籍要約を読み込む"""
+    user_summaries_path = auth.USER_DATA_DIR / "docs" / user_id / "BookSummaries.csv"
+    
+    # ユーザー固有のサマリーファイルが存在する場合はそれを使用
+    if user_summaries_path.exists():
+        df = pd.read_csv(user_summaries_path)
+    else:
+        # ユーザー固有のハイライトからサマリーを生成
+        user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
+        if user_highlights_path.exists():
+            # ハイライトからサマリーを生成
+            df = pd.read_csv(user_highlights_path)
+            
+            # 書籍ごとにハイライトをグループ化してサマリーとする
+            summaries = {}
+            for _, row in df.iterrows():
+                title = row["書籍タイトル"]
+                highlight = row["ハイライト内容"]
+                if title not in summaries:
+                    summaries[title] = []
+                summaries[title].append(highlight)
+            
+            # 辞書形式で返す
+            result = {}
+            for title, highlights in summaries.items():
+                result[title] = "\n".join(highlights[:3]) + "..."  # 最初の3つのハイライトを要約として使用
+            
+            return result
+        else:
+            # ユーザー固有のデータがない場合は共通のファイルを使用
+            return load_book_summaries()
+    
+    # DataFrameから辞書に変換
+    df["書籍タイトル"].fillna("", inplace=True)
+    df["要約"].fillna("", inplace=True)
+    df = df[df["書籍タイトル"] != ""]
+    
+    # タイトル -> 要約 の辞書
+    summaries = {}
+    for _, row in df.iterrows():
+        t = row["書籍タイトル"]
+        s = row["要約"]
+        summaries[t] = s
+    
+    return summaries
+
 # -----------------------
-# 7) ページを表示
+# 9) ページを表示
 # -----------------------
 def main():
     # ページタイトル
@@ -205,8 +315,17 @@ def main():
         st.markdown("[← 書籍一覧に戻る](pages/BookList.py)")
         st.stop()
     
-    # CSVから要約を取り出し
-    summaries_dict = load_book_summaries()
+    # ユーザー固有のデータを使用するかどうか
+    if auth.is_user_authenticated():
+        user_id = auth.get_current_user_id()
+        summaries_dict = load_user_book_summaries(user_id)
+        all_highlights = load_user_highlights(user_id)
+        st.info(f"{st.session_state.user_info.get('name', 'ユーザー')}さんのハイライトデータを表示しています。")
+    else:
+        summaries_dict = load_book_summaries()
+        all_highlights = load_highlights()
+    
+    # 書籍要約を取得
     book_summary = summaries_dict.get(book_title, "")
     
     # 書影取得
@@ -239,9 +358,6 @@ def main():
     
     # ハイライト一覧
     st.write("## ハイライト一覧")
-    
-    # 全ハイライトをロード
-    all_highlights = load_highlights()
     
     # 該当書籍タイトルに一致するハイライトのみフィルタ
     norm_target = normalize_japanese_text(book_title)
