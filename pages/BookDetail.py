@@ -32,15 +32,10 @@ st.sidebar.markdown("---")
 
 # サイドバーナビゲーション
 st.sidebar.markdown("### ナビゲーション")
-pages = {
-    "🏠 ホーム": "Home.py",
-    "🔍 検索モード": "pages/Search.py",
-    "💬 チャットモード": "pages/Chat.py",
-    "📚 書籍一覧": "pages/BookList.py"
-}
-
-for page_name, page_url in pages.items():
-    st.sidebar.page_link(page_url, label=page_name)
+st.sidebar.markdown("[🏠 ホーム](Home.py)")
+st.sidebar.markdown("[🔍 検索モード](pages/Search.py)")
+st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
+st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
 
 # 1) 書籍要約を読み込む (BookSummaries.csv)
 @st.cache_data
@@ -202,17 +197,13 @@ def main():
     # ページタイトル
     st.title("書籍詳細ページ")
     
-    # クエリパラメータからタイトルを取得
-    params = st.query_params
-    raw_title = params.get("title", "")  # 修正済み: リストではなく単一の値を取得
-    
-    if not raw_title:
-        st.error("書籍タイトルが指定されていません (クエリパラメータなし)。")
+    # セッション状態から書籍タイトルを取得
+    if "selected_book_title" in st.session_state:
+        book_title = st.session_state.selected_book_title
+    else:
+        st.error("書籍タイトルが指定されていません。")
         st.markdown("[← 書籍一覧に戻る](pages/BookList.py)")
         st.stop()
-    
-    # URLデコード
-    book_title = urllib.parse.unquote(raw_title)
     
     # CSVから要約を取り出し
     summaries_dict = load_book_summaries()

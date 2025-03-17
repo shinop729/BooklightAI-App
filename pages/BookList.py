@@ -19,15 +19,10 @@ st.sidebar.markdown("---")
 
 # サイドバーナビゲーション
 st.sidebar.markdown("### ナビゲーション")
-pages = {
-    "🏠 ホーム": "Home.py",
-    "🔍 検索モード": "pages/Search.py",
-    "💬 チャットモード": "pages/Chat.py",
-    "📚 書籍一覧": "pages/BookList.py"
-}
-
-for page_name, page_url in pages.items():
-    st.sidebar.page_link(page_url, label=page_name)
+st.sidebar.markdown("[🏠 ホーム](Home.py)")
+st.sidebar.markdown("[🔍 検索モード](pages/Search.py)")
+st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
+st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
 
 # =============================================================================
 # 1. CSVから書籍データを読み込む関数
@@ -111,11 +106,10 @@ for index, row in df.iterrows():
         st.write(short_summary)
         
         # 書籍詳細ページへのリンクを作成
-        # ※ ここで "<...>" で囲むと、カッコやスペースが含まれても途切れにくい
-        encoded_title = urllib.parse.quote(title)
-        link_url = f"pages/BookDetail.py?title={encoded_title}"
-        
-        # Markdown記法で山カッコ付きリンク
-        st.markdown(f"[詳細を見る](<{link_url}>)")
+        if st.button(f"詳細を見る", key=f"detail_{index}"):
+            # セッション状態に書籍タイトルを保存
+            st.session_state.selected_book_title = title
+            # BookDetailページにリダイレクト
+            st.switch_page("pages/BookDetail.py")
     
     st.write("---")
