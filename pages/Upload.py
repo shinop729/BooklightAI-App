@@ -156,15 +156,34 @@ def save_highlights_for_user(df, user_id):
 def generate_book_summaries(df, user_id):
     """ハイライトから書籍ごとのサマリを生成して保存"""
     try:
+        # 処理開始メッセージ
+        st.info("サマリ生成処理を開始します...")
+        
+        # APIキーの確認
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            st.error("OpenAI APIキーが設定されていません。.envファイルを確認してください。")
+            return None
+        
         # BookSummaryGeneratorのインスタンスを作成
-        generator = BookSummaryGenerator()
+        st.info("BookSummaryGeneratorを初期化中...")
+        generator = BookSummaryGenerator(api_key=api_key)
+        
+        # 書籍数の確認
+        book_count = len(df.groupby(["書籍タイトル", "著者"]))
+        st.info(f"合計 {book_count} 冊の書籍のサマリを生成します。この処理には数分かかる場合があります。")
         
         # サマリを生成して保存
+        st.info("サマリ生成処理を実行中...")
         summary_path = generator.generate_and_save_summaries(df, user_id)
         
+        # 成功メッセージ
+        st.success(f"サマリ生成が完了しました！")
         return summary_path
     except Exception as e:
         st.error(f"サマリ生成中にエラーが発生しました: {str(e)}")
+        import traceback
+        st.error(f"詳細エラー: {traceback.format_exc()}")
         return None
 
 def main():
@@ -213,12 +232,31 @@ def main():
                 summary_status = st.empty()
                 summary_status.info("書籍ごとのサマリを生成中です。これには数分かかる場合があります...")
                 
-                # サマリを生成
-                summary_path = generate_book_summaries(df, user_id)
+                # サマリ生成処理の実行
+                with st.spinner("サマリ生成中..."):
+                    summary_path = generate_book_summaries(df, user_id)
                 
                 if summary_path:
                     summary_status.success(f"書籍ごとのサマリを生成しました！")
                     st.info(f"サマリ保存先: {summary_path}")
+                    
+                    # 生成されたサマリの確認
+                    if Path(summary_path).exists():
+                        try:
+                            summary_df = pd.read_csv(summary_path)
+                            st.success(f"{len(summary_df)}冊の書籍のサマリが正常に生成されました。")
+                            
+                            # サマリの一部を表示
+                            if not summary_df.empty:
+                                with st.expander("生成されたサマリのサンプル"):
+                                    sample_book = summary_df.iloc[0]
+                                    st.write(f"**書籍タイトル**: {sample_book['書籍タイトル']}")
+                                    st.write(f"**著者**: {sample_book['著者']}")
+                                    st.write(f"**要約**:\n{sample_book['要約'][:500]}...")
+                        except Exception as e:
+                            st.error(f"サマリファイルの読み込み中にエラーが発生しました: {e}")
+                    else:
+                        st.error(f"サマリファイルが見つかりません: {summary_path}")
                 else:
                     summary_status.error("サマリの生成に失敗しました。")
                 

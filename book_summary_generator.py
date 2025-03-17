@@ -49,18 +49,23 @@ class BookSummaryGenerator:
         
         # Call the OpenAI API
         try:
+            print(f"Calling OpenAI API for book: {book_title}")
             response = self.client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-3.5-turbo",  # Changed from gpt-4-turbo to gpt-3.5-turbo for faster response
                 messages=[
                     {"role": "system", "content": "You are a skilled book summarizer who can extract the key ideas and themes from book highlights and create a comprehensive, insightful summary."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=1000
             )
-            return response.choices[0].message.content.strip()
+            summary = response.choices[0].message.content.strip()
+            print(f"Successfully generated summary for: {book_title}")
+            return summary
         except Exception as e:
-            print(f"Error generating summary for {book_title}: {e}")
-            return f"Error generating summary: {e}"
+            error_msg = f"Error generating summary for {book_title}: {e}"
+            print(error_msg)
+            # Return a placeholder summary instead of an error message
+            return f"この書籍のAIによる要約は生成できませんでした。\n\nエラー詳細: {e}\n\n以下はハイライトの一部です:\n\n{highlights[:500]}..."
     
     def generate_summaries_from_dataframe(self, df):
         """
@@ -73,16 +78,18 @@ class BookSummaryGenerator:
             pandas.DataFrame: DataFrame containing book summaries
         """
         # Group highlights by book title and author
+        print("Grouping highlights by book title and author...")
         grouped = df.groupby(["書籍タイトル", "著者"])["ハイライト内容"].apply(lambda x: "\n".join(x)).reset_index()
+        print(f"Found {len(grouped)} books to summarize")
         
         # Generate summaries for each book
         summaries = []
-        for _, row in grouped.iterrows():
+        for i, row in grouped.iterrows():
             book_title = row["書籍タイトル"]
             author = row["著者"]
             highlights = row["ハイライト内容"]
             
-            print(f"Generating summary for: {book_title}")
+            print(f"[{i+1}/{len(grouped)}] Generating summary for: {book_title}")
             summary = self.generate_summary(book_title, author, highlights)
             
             summaries.append({
@@ -90,8 +97,15 @@ class BookSummaryGenerator:
                 "著者": author,
                 "要約": summary
             })
+            
+            # Save intermediate results after each book
+            if (i+1) % 5 == 0 or i+1 == len(grouped):
+                print(f"Saving intermediate results after processing {i+1} books...")
+                temp_df = pd.DataFrame(summaries)
+                temp_df.to_csv(f"temp_summaries_{i+1}.csv", index=False)
         
         # Create a DataFrame from the summaries
+        print("All summaries generated successfully!")
         return pd.DataFrame(summaries)
     
     def save_summaries(self, summaries_df, output_path):
@@ -106,9 +120,21 @@ class BookSummaryGenerator:
             Path: Path to the saved CSV file
         """
         output_path = Path(output_path)
-        summaries_df.to_csv(output_path, index=False)
-        print(f"Summaries saved to: {output_path}")
-        return output_path
+        try:
+            # Ensure the directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Save the file
+            summaries_df.to_csv(output_path, index=False)
+            print(f"Summaries successfully saved to: {output_path}")
+            return output_path
+        except Exception as e:
+            print(f"Error saving summaries to {output_path}: {e}")
+            # Try saving to a fallback location
+            fallback_path = Path("BookSummaries_fallback.csv")
+            summaries_df.to_csv(fallback_path, index=False)
+            print(f"Summaries saved to fallback location: {fallback_path}")
+            return fallback_path
     
     def generate_and_save_summaries(self, highlights_df, user_id):
         """
