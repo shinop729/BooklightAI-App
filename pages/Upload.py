@@ -8,6 +8,7 @@ from pathlib import Path
 # 親ディレクトリをパスに追加（Homeモジュールをインポートするため）
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import auth
+from book_summary_generator import BookSummaryGenerator
 
 # ページ設定
 st.set_page_config(
@@ -152,6 +153,20 @@ def save_highlights_for_user(df, user_id):
     
     return csv_path, txt_path
 
+def generate_book_summaries(df, user_id):
+    """ハイライトから書籍ごとのサマリを生成して保存"""
+    try:
+        # BookSummaryGeneratorのインスタンスを作成
+        generator = BookSummaryGenerator()
+        
+        # サマリを生成して保存
+        summary_path = generator.generate_and_save_summaries(df, user_id)
+        
+        return summary_path
+    except Exception as e:
+        st.error(f"サマリ生成中にエラーが発生しました: {str(e)}")
+        return None
+
 def main():
     st.title("Kindleハイライトのアップロード")
     
@@ -193,6 +208,19 @@ def main():
                 csv_path, txt_path = save_highlights_for_user(df, user_id)
                 st.success(f"ハイライトを保存しました！")
                 st.info(f"保存先: {csv_path}")
+                
+                # サマリ生成の進捗状況を表示するためのプレースホルダー
+                summary_status = st.empty()
+                summary_status.info("書籍ごとのサマリを生成中です。これには数分かかる場合があります...")
+                
+                # サマリを生成
+                summary_path = generate_book_summaries(df, user_id)
+                
+                if summary_path:
+                    summary_status.success(f"書籍ごとのサマリを生成しました！")
+                    st.info(f"サマリ保存先: {summary_path}")
+                else:
+                    summary_status.error("サマリの生成に失敗しました。")
                 
                 # 既存のハイライトとの統合オプション
                 st.write("#### 既存のハイライトとの統合")

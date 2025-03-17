@@ -80,19 +80,10 @@ def load_book_data():
                 highlights_df = pd.read_csv(user_highlights_path)
                 
                 # 書籍ごとにハイライトをグループ化
-                grouped = highlights_df.groupby("書籍タイトル")["ハイライト内容"].agg(lambda x: "\n".join(x)).reset_index()
-                grouped.rename(columns={"ハイライト内容": "要約"}, inplace=True)
-                
-                # 著者情報を追加
-                authors = {}
-                for _, row in highlights_df.iterrows():
-                    title = row["書籍タイトル"]
-                    author = row["著者"]
-                    if title not in authors:
-                        authors[title] = author
-                
-                # 著者列を追加
-                grouped["著者"] = grouped["書籍タイトル"].map(authors)
+                grouped = highlights_df.groupby(["書籍タイトル", "著者"]).agg(
+                    ハイライト件数=("ハイライト内容", "count"),
+                    要約=("ハイライト内容", lambda x: "\n\n".join(x.tolist()[:3]) + "\n\n(※AIによる要約は生成されていません。ハイライトアップロードページでサマリを生成してください。)")
+                ).reset_index()
                 
                 df = grouped
             else:

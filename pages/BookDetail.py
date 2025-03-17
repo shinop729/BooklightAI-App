@@ -267,19 +267,15 @@ def load_user_book_summaries(user_id):
             # ハイライトからサマリーを生成
             df = pd.read_csv(user_highlights_path)
             
-            # 書籍ごとにハイライトをグループ化してサマリーとする
-            summaries = {}
-            for _, row in df.iterrows():
-                title = row["書籍タイトル"]
-                highlight = row["ハイライト内容"]
-                if title not in summaries:
-                    summaries[title] = []
-                summaries[title].append(highlight)
+            # 書籍ごとにハイライトをグループ化
+            grouped = df.groupby(["書籍タイトル", "著者"])
             
             # 辞書形式で返す
             result = {}
-            for title, highlights in summaries.items():
-                result[title] = "\n".join(highlights[:3]) + "..."  # 最初の3つのハイライトを要約として使用
+            for (title, _), group in grouped:
+                # 最初の5つのハイライトを要約として使用
+                highlights = group["ハイライト内容"].tolist()[:5]
+                result[title] = "\n\n".join(highlights) + "\n\n(※AIによる要約は生成されていません。ハイライトアップロードページでサマリを生成してください。)"
             
             return result
         else:
