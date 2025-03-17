@@ -142,15 +142,10 @@ st.sidebar.markdown("---")
 
 # サイドバーナビゲーション
 st.sidebar.markdown("### ナビゲーション")
-pages = {
-    "🏠 ホーム": "Home.py",
-    "🔍 検索モード": "pages/Search.py",
-    "💬 チャットモード": "pages/Chat.py",
-    "📚 書籍一覧": "pages/BookList.py"
-}
-
-for page_name, page_url in pages.items():
-    st.sidebar.page_link(page_url, label=page_name)
+st.sidebar.markdown("[🏠 ホーム](Home.py)")
+st.sidebar.markdown("[🔍 検索モード](pages/Search.py)")
+st.sidebar.markdown("[💬 チャットモード](pages/Chat.py)")
+st.sidebar.markdown("[📚 書籍一覧](pages/BookList.py)")
 
 # サイドバーに会話リセットボタンを配置
 st.sidebar.markdown("### チャット設定")
