@@ -1,8 +1,12 @@
 import os
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Load environment variables
 load_dotenv()
@@ -18,6 +22,160 @@ class BookSummaryGenerator:
         
         self.client = OpenAI(api_key=api_key)
     
+    def extract_keywords(self, text, num_keywords=10):
+        """
+        Extract key concepts/keywords from the text using OpenAI API.
+        
+        Args:
+            text (str): The text to extract keywords from
+            num_keywords (int): The number of keywords to extract
+            
+        Returns:
+            list: A list of extracted keywords
+        """
+        prompt = f"""
+        Extract the {num_keywords} most important keywords or key concepts from the following text.
+        Return only the keywords as a comma-separated list, without any additional text.
+        
+        Text:
+        {text}
+        """
+        
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that extracts key concepts and keywords from text."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200
+            )
+            keywords = response.choices[0].message.content.strip()
+            return [k.strip() for k in keywords.split(',')]
+        except Exception as e:
+            print(f"Error extracting keywords: {e}")
+            return []
+    
+    def cluster_highlights(self, highlights, n_clusters=5):
+        """
+        Cluster highlights to ensure diversity of topics.
+        
+        Args:
+            highlights (list): List of highlight texts
+            n_clusters (int): Number of clusters to create
+            
+        Returns:
+            list: Indices of selected highlights from each cluster
+        """
+        if len(highlights) <= n_clusters:
+            return list(range(len(highlights)))
+        
+        # Create TF-IDF vectors
+        vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        tfidf_matrix = vectorizer.fit_transform(highlights)
+        
+        # Adjust number of clusters if we have fewer highlights than requested clusters
+        actual_n_clusters = min(n_clusters, len(highlights))
+        
+        # Apply KMeans clustering
+        kmeans = KMeans(n_clusters=actual_n_clusters, random_state=42)
+        clusters = kmeans.fit_predict(tfidf_matrix)
+        
+        # Get cluster centers
+        centers = kmeans.cluster_centers_
+        
+        # Select the highlight closest to each cluster center
+        selected_indices = []
+        for i in range(actual_n_clusters):
+            # Get highlights in this cluster
+            cluster_indices = [idx for idx, cluster in enumerate(clusters) if cluster == i]
+            
+            if cluster_indices:
+                # Get vectors for highlights in this cluster
+                cluster_vectors = tfidf_matrix[cluster_indices]
+                
+                # Calculate similarity to cluster center
+                similarities = cosine_similarity(cluster_vectors, centers[i].reshape(1, -1))
+                
+                # Get the index of the highlight closest to the center
+                closest_idx = cluster_indices[np.argmax(similarities)]
+                selected_indices.append(closest_idx)
+        
+        return selected_indices
+    
+    def rank_highlights_by_importance(self, highlights, keywords):
+        """
+        Rank highlights by their importance based on keyword presence and other factors.
+        
+        Args:
+            highlights (list): List of highlight texts
+            keywords (list): List of important keywords
+            
+        Returns:
+            list: Indices of highlights sorted by importance (most important first)
+        """
+        scores = []
+        
+        for i, highlight in enumerate(highlights):
+            # Count keyword occurrences
+            keyword_count = sum(1 for keyword in keywords if keyword.lower() in highlight.lower())
+            
+            # Consider highlight length (normalize to avoid bias towards very long highlights)
+            length_score = min(len(highlight) / 200, 1.0)  # Cap at 1.0 for highlights longer than 200 chars
+            
+            # Calculate final score (can adjust weights as needed)
+            final_score = (keyword_count * 0.7) + (length_score * 0.3)
+            scores.append((i, final_score))
+        
+        # Sort by score in descending order
+        sorted_indices = [idx for idx, score in sorted(scores, key=lambda x: x[1], reverse=True)]
+        return sorted_indices
+    
+    def generate_summary_from_highlights(self, book_title, author, highlights, max_highlights=10):
+        """
+        Generate a summary by selecting and concatenating important highlights.
+        
+        Args:
+            book_title (str): The title of the book
+            author (str): The author of the book
+            highlights (list): List of highlight texts
+            max_highlights (int): Maximum number of highlights to include
+            
+        Returns:
+            str: The generated summary
+        """
+        if not highlights:
+            return f"No highlights available for {book_title} by {author}."
+        
+        # Join highlights for keyword extraction
+        all_text = "\n".join(highlights)
+        
+        # Extract keywords
+        keywords = self.extract_keywords(all_text)
+        print(f"Extracted keywords: {', '.join(keywords)}")
+        
+        # Cluster highlights to ensure diversity
+        cluster_indices = self.cluster_highlights(highlights)
+        clustered_highlights = [highlights[idx] for idx in cluster_indices]
+        
+        # Rank the clustered highlights by importance
+        ranked_indices = self.rank_highlights_by_importance(clustered_highlights, keywords)
+        
+        # Select top highlights
+        top_indices = ranked_indices[:max_highlights]
+        selected_highlights = [clustered_highlights[idx] for idx in top_indices]
+        
+        # Create summary by concatenating selected highlights
+        summary = f"# {book_title}\n## by {author}\n\n"
+        summary += "## Key Concepts\n"
+        summary += ", ".join(keywords) + "\n\n"
+        summary += "## Summary\n"
+        
+        for i, highlight in enumerate(selected_highlights, 1):
+            summary += f"{i}. {highlight}\n\n"
+        
+        return summary
+    
     def generate_summary(self, book_title, author, highlights):
         """
         Generate a summary for a book using OpenAI's API based on the highlights.
@@ -30,35 +188,16 @@ class BookSummaryGenerator:
         Returns:
             str: The generated summary
         """
-        # Prepare the prompt
-        prompt = f"""
-        Book Title: {book_title}
-        Author: {author}
+        # Convert highlights string to list
+        highlight_list = highlights.split('\n')
+        highlight_list = [h.strip() for h in highlight_list if h.strip()]
         
-        Highlights from the book:
-        {highlights}
-        
-        Based on these highlights, please generate a comprehensive summary of the book. 
-        The summary should:
-        1. Capture the main themes and key ideas of the book
-        2. Be well-structured and coherent
-        3. Be around 300-500 words
-        4. Include the most important concepts and insights from the highlights
-        5. Be written in a clear, engaging style
-        """
-        
-        # Call the OpenAI API
         try:
-            print(f"Calling OpenAI API for book: {book_title}")
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Changed from gpt-4-turbo to gpt-3.5-turbo for faster response
-                messages=[
-                    {"role": "system", "content": "You are a skilled book summarizer who can extract the key ideas and themes from book highlights and create a comprehensive, insightful summary."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=1000
-            )
-            summary = response.choices[0].message.content.strip()
+            print(f"Generating summary for book: {book_title}")
+            
+            # Use the new approach to generate summary from highlights
+            summary = self.generate_summary_from_highlights(book_title, author, highlight_list)
+            
             print(f"Successfully generated summary for: {book_title}")
             return summary
         except Exception as e:
