@@ -10,6 +10,11 @@ from dotenv import load_dotenv
 import openai
 import urllib.parse
 
+def local_css(file_name):
+    """Load and inject a local CSS file into the Streamlit app"""
+    with open(file_name) as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
 # アプリ全体の設定
 def setup_app():
     load_dotenv()
@@ -57,10 +62,23 @@ def load_highlights():
 def load_book_info():
     df = pd.read_csv("docs/KindleHighlights.csv")
     df = df[df["書籍タイトル"] != ""]
-    grouped = df.groupby("書籍タイトル")["要約"].agg(lambda x: "\n".join(x)).reset_index()
+    
+    # Group by book title and aggregate highlights
+    grouped = df.groupby("書籍タイトル")["ハイライト内容"].agg(lambda x: "\n".join(x)).reset_index()
+    
     book_info = {}
     for _, row in grouped.iterrows():
-        book_info[row["書籍タイトル"]] = row["要約"]
+        title = row["書籍タイトル"]
+        # Get author for this book (taking the first one if multiple)
+        author = df[df["書籍タイトル"] == title]["著者"].iloc[0] if not df[df["書籍タイトル"] == title]["著者"].empty else ""
+        
+        # Create a dictionary with the required structure for Search.py
+        book_info[title] = {
+            "title_text": title,
+            "normalized_title": normalize_japanese_text(title),
+            "normalized_summary": normalize_japanese_text(row["ハイライト内容"]),
+            "author": author
+        }
     return book_info
 
 def display_quote(content, title, author):
@@ -68,9 +86,9 @@ def display_quote(content, title, author):
     detail_link = f"pages/BookDetail.py?title={encoded_title}"
     
     quote_html = f"""
-    <div style="padding:10px; border-radius:5px; background-color:#f0f2f6; margin-bottom:10px;">
-        <p>{content}</p>
-        <a href="{detail_link}" style="text-decoration:none; color:#4a4a4a;">
+    <div style="padding:15px; border-radius:8px; background-color:#2a2a2a; margin-bottom:15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+        <p style="color:#ffffff; font-size:16px; line-height:1.6; margin-bottom:12px;">{content}</p>
+        <a href="{detail_link}" style="text-decoration:none; color:#4da6ff; font-weight:500; display:block; text-align:right;">
             {title} / {author}
         </a>
     </div>
