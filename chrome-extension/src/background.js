@@ -100,7 +100,7 @@ async function authenticateWithGoogle() {
       chrome.runtime.onMessage.addListener(messageListener);
       
       // タイムアウト処理（2分後）
-      setTimeout(() => {
+      self.setTimeout(() => {
         chrome.runtime.onMessage.removeListener(messageListener);
         if (authTabId) {
           chrome.tabs.remove(authTabId);
@@ -251,7 +251,7 @@ async function sendCachedHighlights() {
 // オンライン状態の変化を監視（Service Worker対応版）
 // Service Workerではwindowオブジェクトが存在しないため、代替手段を使用
 // 定期的にキャッシュを確認して送信を試みる
-setInterval(() => {
+self.setInterval(() => {
   console.log('Booklight AI: キャッシュ確認');
   sendCachedHighlights();
 }, 60000); // 1分ごとに確認
