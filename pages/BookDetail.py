@@ -5,7 +5,7 @@ import urllib
 import unicodedata
 import re
 import html
-from typing import List
+from typing import List, Dict, Any
 import os
 import sys
 from pathlib import Path
@@ -14,6 +14,9 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import auth
 from progress_display import display_summary_progress_in_sidebar
+from api.database.base import SessionLocal
+from api.database.models import User, Book, Highlight
+from api.database import access as db_access
 
 # ページ設定
 st.set_page_config(
@@ -292,74 +295,142 @@ def fetch_cover_image(title: str, author: str = "") -> str:
 # =============================================================================
 @st.cache_data
 def load_user_highlights(user_id):
-    """ユーザー固有のハイライトを読み込む"""
-    user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
-    
-    # ユーザー固有のハイライトファイルが存在しない場合は共通のファイルを使用
-    if not user_highlights_path.exists():
+    """ユーザー固有のハイライトを読み込む（データベースから取得、フォールバックとしてCSVを使用）"""
+    try:
+        # データベースからデータを取得
+        db = SessionLocal()
+        try:
+            # Google IDからユーザーを検索
+            db_user = db_access.get_user_by_google_id(db, user_id)
+            
+            if db_user:
+                # データベースからユーザーのハイライトを取得
+                highlights = []
+                
+                # ユーザーの全ハイライトを取得
+                db_highlights = db_access.get_all_highlights_for_user(db, db_user.id)
+                
+                for h in db_highlights:
+                    # 書籍情報を取得
+                    book = db.query(Book).filter(Book.id == h.book_id).first()
+                    if book:
+                        highlights.append({
+                            "title": book.title,
+                            "author": book.author,
+                            "content": h.content
+                        })
+                
+                # データが取得できた場合はそれを返す
+                if highlights:
+                    return highlights
+        finally:
+            db.close()
+        
+        # データベースにデータがない場合はCSVファイルを確認
+        user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
+        
+        # ユーザー固有のハイライトファイルが存在しない場合は共通のファイルを使用
+        if not user_highlights_path.exists():
+            return load_highlights()
+        
+        df = pd.read_csv(user_highlights_path)
+        df.fillna("", inplace=True)
+        
+        highlights = []
+        for _, row in df.iterrows():
+            title = row["書籍タイトル"]
+            author = row["著者"]
+            content = row["ハイライト内容"]
+            highlights.append({
+                "title": title,
+                "author": author,
+                "content": content
+            })
+        return highlights
+    except Exception as e:
+        st.error(f"ハイライト読み込み中にエラーが発生しました: {str(e)}")
+        # エラーが発生した場合は共通のファイルを使用
         return load_highlights()
-    
-    df = pd.read_csv(user_highlights_path)
-    df.fillna("", inplace=True)
-    
-    highlights = []
-    for _, row in df.iterrows():
-        title = row["書籍タイトル"]
-        author = row["著者"]
-        content = row["ハイライト内容"]
-        highlights.append({
-            "title": title,
-            "author": author,
-            "content": content
-        })
-    return highlights
 
 # =============================================================================
 # 8) ユーザー固有の書籍要約を読み込む関数
 # =============================================================================
 @st.cache_data
 def load_user_book_summaries(user_id):
-    """ユーザー固有の書籍要約を読み込む"""
-    user_summaries_path = auth.USER_DATA_DIR / "docs" / user_id / "BookSummaries.csv"
-    
-    # ユーザー固有のサマリーファイルが存在する場合はそれを使用
-    if user_summaries_path.exists():
-        df = pd.read_csv(user_summaries_path)
-    else:
-        # ユーザー固有のハイライトからサマリーを生成
-        user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
-        if user_highlights_path.exists():
-            # ハイライトからサマリーを生成
-            df = pd.read_csv(user_highlights_path)
+    """ユーザー固有の書籍要約を読み込む（データベースから取得、フォールバックとしてCSVを使用）"""
+    try:
+        # データベースからデータを取得
+        db = SessionLocal()
+        try:
+            # Google IDからユーザーを検索
+            db_user = db_access.get_user_by_google_id(db, user_id)
             
-            # 書籍ごとにハイライトをグループ化
-            grouped = df.groupby(["書籍タイトル", "著者"])
-            
-            # 辞書形式で返す
-            result = {}
-            for (title, _), group in grouped:
-                # 最初の5つのハイライトを要約として使用
-                highlights = group["ハイライト内容"].tolist()[:5]
-                result[title] = "\n\n".join(highlights) + "\n\n(※AIによる要約は生成されていません。ハイライトアップロードページでサマリを生成してください。)"
-            
-            return result
+            if db_user:
+                # データベースからユーザーの書籍とハイライトを取得
+                books = db_access.get_books_for_user(db, db_user.id)
+                
+                # 辞書形式で返す
+                result = {}
+                for book in books:
+                    # 書籍に関連するハイライトを取得
+                    highlights = db_access.get_highlights_for_book(db, db_user.id, book.id)
+                    
+                    if highlights:
+                        # 最初の5つのハイライトを要約として使用
+                        highlight_texts = [h.content for h in highlights[:5]]
+                        result[book.title] = "\n\n".join(highlight_texts) + "\n\n(※AIによる要約は生成されていません。ハイライトアップロードページでサマリを生成してください。)"
+                
+                # データが取得できた場合はそれを返す
+                if result:
+                    return result
+        finally:
+            db.close()
+        
+        # データベースにデータがない場合はCSVファイルを確認
+        user_summaries_path = auth.USER_DATA_DIR / "docs" / user_id / "BookSummaries.csv"
+        
+        # ユーザー固有のサマリーファイルが存在する場合はそれを使用
+        if user_summaries_path.exists():
+            df = pd.read_csv(user_summaries_path)
         else:
-            # ユーザー固有のデータがない場合は共通のファイルを使用
-            return load_book_summaries()
-    
-    # DataFrameから辞書に変換
-    df["書籍タイトル"].fillna("", inplace=True)
-    df["要約"].fillna("", inplace=True)
-    df = df[df["書籍タイトル"] != ""]
-    
-    # タイトル -> 要約 の辞書
-    summaries = {}
-    for _, row in df.iterrows():
-        t = row["書籍タイトル"]
-        s = row["要約"]
-        summaries[t] = s
-    
-    return summaries
+            # ユーザー固有のハイライトからサマリーを生成
+            user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
+            if user_highlights_path.exists():
+                # ハイライトからサマリーを生成
+                df = pd.read_csv(user_highlights_path)
+                
+                # 書籍ごとにハイライトをグループ化
+                grouped = df.groupby(["書籍タイトル", "著者"])
+                
+                # 辞書形式で返す
+                result = {}
+                for (title, _), group in grouped:
+                    # 最初の5つのハイライトを要約として使用
+                    highlights = group["ハイライト内容"].tolist()[:5]
+                    result[title] = "\n\n".join(highlights) + "\n\n(※AIによる要約は生成されていません。ハイライトアップロードページでサマリを生成してください。)"
+                
+                return result
+            else:
+                # ユーザー固有のデータがない場合は共通のファイルを使用
+                return load_book_summaries()
+        
+        # DataFrameから辞書に変換
+        df["書籍タイトル"].fillna("", inplace=True)
+        df["要約"].fillna("", inplace=True)
+        df = df[df["書籍タイトル"] != ""]
+        
+        # タイトル -> 要約 の辞書
+        summaries = {}
+        for _, row in df.iterrows():
+            t = row["書籍タイトル"]
+            s = row["要約"]
+            summaries[t] = s
+        
+        return summaries
+    except Exception as e:
+        st.error(f"書籍要約読み込み中にエラーが発生しました: {str(e)}")
+        # エラーが発生した場合は共通のファイルを使用
+        return load_book_summaries()
 
 # -----------------------
 # 9) ページを表示

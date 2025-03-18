@@ -9,6 +9,9 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import auth
 from book_summary_generator import BookSummaryGenerator
+from api.database.base import SessionLocal
+from api.database.models import User, Book, Highlight
+from api.database import access as db_access
 
 # ページ設定
 st.set_page_config(
@@ -134,7 +137,7 @@ def process_kindle_highlights(file):
         return None
 
 def save_highlights_for_user(df, user_id):
-    """ユーザー固有のディレクトリにハイライトを保存"""
+    """ユーザー固有のディレクトリにハイライトを保存し、データベースにも保存"""
     # ユーザーディレクトリのパス
     user_dir = auth.USER_DATA_DIR / "docs" / user_id
     user_dir.mkdir(exist_ok=True)
@@ -151,7 +154,47 @@ def save_highlights_for_user(df, user_id):
             f.write(f"{row['書籍タイトル']} ({row['著者']})\n")
             f.write(f"- {row['ハイライト内容']}\n\n")
     
-    return csv_path, txt_path
+    # データベースにも保存
+    db_result = save_highlights_to_database(df, user_id)
+    
+    return csv_path, txt_path, db_result
+
+def save_highlights_to_database(df, google_id):
+    """ハイライトをデータベースに保存"""
+    try:
+        # データベース接続
+        db = SessionLocal()
+        try:
+            # ユーザー情報を取得
+            user_info = st.session_state.user_info if hasattr(st.session_state, 'user_info') else {}
+            
+            # ユーザーを取得または作成
+            username = user_info.get('email', '').split('@')[0] if 'email' in user_info else google_id
+            email = user_info.get('email', f"{google_id}@example.com")
+            full_name = user_info.get('name', '')
+            picture = user_info.get('picture', '')
+            
+            # ユーザーを取得または作成
+            db_user = db_access.get_or_create_user(
+                db, 
+                google_id=google_id,
+                username=username,
+                email=email,
+                full_name=full_name,
+                picture=picture
+            )
+            
+            # ハイライトをデータベースに保存
+            result = db_access.save_highlights_to_db(db, df, db_user.id)
+            return result
+            
+        finally:
+            db.close()
+    except Exception as e:
+        st.error(f"データベース保存中にエラーが発生しました: {str(e)}")
+        import traceback
+        st.error(f"詳細エラー: {traceback.format_exc()}")
+        return {"status": "error", "message": f"データベース保存中にエラーが発生しました: {str(e)}"}
 
 def generate_book_summaries(df, user_id, update_progress=None):
     """ハイライトから書籍ごとのサマリを生成して保存"""
@@ -224,9 +267,16 @@ def main():
             
             # 保存ボタン
             if st.button("ハイライトを保存"):
-                csv_path, txt_path = save_highlights_for_user(df, user_id)
+                csv_path, txt_path, db_result = save_highlights_for_user(df, user_id)
                 st.success(f"ハイライトを保存しました！")
                 st.info(f"保存先: {csv_path}")
+                
+                # データベース保存結果の表示
+                if db_result and db_result.get("status") == "success":
+                    st.success(f"データベースにも保存しました: {db_result.get('message', '')}")
+                elif db_result and db_result.get("status") == "error":
+                    st.warning(f"データベース保存中に問題が発生しました: {db_result.get('message', '')}")
+                    st.info("CSVファイルには正常に保存されました。アプリケーションは引き続き利用できます。")
                 
                 # 書籍数を取得
                 book_count = len(df.groupby(["書籍タイトル", "著者"]))

@@ -10,6 +10,9 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import auth
 from progress_display import display_summary_progress_in_sidebar
+from api.database.base import SessionLocal
+from api.database.models import User, Book, Highlight
+from api.database import access as db_access
 
 # ページ設定
 st.set_page_config(
@@ -61,40 +64,64 @@ if auth_success:
     st.rerun()  # ページをリロード
 
 # =============================================================================
-# 1. CSVから書籍データを読み込む関数
+# 1. データベースから書籍データを読み込む関数
 # =============================================================================
 @st.cache_data
 def load_book_data():
     """
-    書籍データを読み込む（ユーザー固有のデータがあれば使用）
+    書籍データを読み込む（データベースから取得、フォールバックとしてCSVを使用）
     """
-    # ユーザーがログインしている場合は、ユーザー固有のデータを使用
-    if auth.is_user_authenticated():
-        user_id = auth.get_current_user_id()
-        user_summaries_path = auth.USER_DATA_DIR / "docs" / user_id / "BookSummaries.csv"
-        
-        # ユーザー固有のファイルが存在する場合はそれを使用
-        if user_summaries_path.exists():
-            df = pd.read_csv(user_summaries_path)
+    try:
+        # ユーザーがログインしている場合は、ユーザー固有のデータを使用
+        if auth.is_user_authenticated():
+            user_id = auth.get_current_user_id()
+            
+            # データベースからデータを取得
+            db = SessionLocal()
+            try:
+                # Google IDからユーザーを検索
+                db_user = db_access.get_user_by_google_id(db, user_id)
+                
+                if db_user:
+                    # データベースからユーザーの書籍サマリーを取得
+                    df = db_access.get_book_summaries_for_user(db, db_user.id)
+                    
+                    # データが取得できた場合はそれを返す
+                    if not df.empty:
+                        df.fillna("", inplace=True)
+                        return df
+                
+                # データベースにデータがない場合はCSVファイルを確認
+                user_summaries_path = auth.USER_DATA_DIR / "docs" / user_id / "BookSummaries.csv"
+                
+                # ユーザー固有のファイルが存在する場合はそれを使用
+                if user_summaries_path.exists():
+                    df = pd.read_csv(user_summaries_path)
+                else:
+                    # ユーザー固有のハイライトからサマリーを生成
+                    user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
+                    if user_highlights_path.exists():
+                        # ハイライトからサマリーを生成
+                        highlights_df = pd.read_csv(user_highlights_path)
+                        
+                        # 書籍ごとにハイライトをグループ化
+                        grouped = highlights_df.groupby(["書籍タイトル", "著者"]).agg(
+                            ハイライト件数=("ハイライト内容", "count"),
+                            要約=("ハイライト内容", lambda x: "\n\n".join(x.tolist()[:3]) + "\n\n(※AIによる要約は生成されていません。ハイライトアップロードページでサマリを生成してください。)")
+                        ).reset_index()
+                        
+                        df = grouped
+                    else:
+                        # ユーザー固有のデータがない場合は共通のファイルを使用
+                        df = pd.read_csv("docs/BookSummaries.csv")
+            finally:
+                db.close()
         else:
-            # ユーザー固有のハイライトからサマリーを生成
-            user_highlights_path = auth.USER_DATA_DIR / "docs" / user_id / "KindleHighlights.csv"
-            if user_highlights_path.exists():
-                # ハイライトからサマリーを生成
-                highlights_df = pd.read_csv(user_highlights_path)
-                
-                # 書籍ごとにハイライトをグループ化
-                grouped = highlights_df.groupby(["書籍タイトル", "著者"]).agg(
-                    ハイライト件数=("ハイライト内容", "count"),
-                    要約=("ハイライト内容", lambda x: "\n\n".join(x.tolist()[:3]) + "\n\n(※AIによる要約は生成されていません。ハイライトアップロードページでサマリを生成してください。)")
-                ).reset_index()
-                
-                df = grouped
-            else:
-                # ユーザー固有のデータがない場合は共通のファイルを使用
-                df = pd.read_csv("docs/BookSummaries.csv")
-    else:
-        # ログインしていない場合は共通のファイルを使用
+            # ログインしていない場合は共通のファイルを使用
+            df = pd.read_csv("docs/BookSummaries.csv")
+    except Exception as e:
+        st.error(f"データ読み込み中にエラーが発生しました: {str(e)}")
+        # エラーが発生した場合は共通のファイルを使用
         df = pd.read_csv("docs/BookSummaries.csv")
     
     df.fillna("", inplace=True)
