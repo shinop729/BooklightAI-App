@@ -101,27 +101,30 @@ def load_book_info(user_id=None):
 
 def display_quote(content, title, author, index=0):
     """
-    Home.py用の引用表示関数 - 書籍詳細ページへのリンク付き
+    Home.py用の引用表示関数 - 書籍タイトルをクリックして詳細ページへ遷移
     """
-    # ホームページ用のスタイル（ダークモード対応）
-    quote_html = f"""
+    # ハイライト内容を表示
+    st.markdown(f"""
     <div style="padding:15px; border-radius:8px; background-color:#2a2a2a; margin-bottom:15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
         <p style="color:#ffffff; font-size:16px; line-height:1.6; margin-bottom:12px;">{content}</p>
         <div style="text-align:right;">
             <span style="color:#4da6ff; font-weight:500;">{title} / {author}</span>
         </div>
     </div>
-    """
-    st.markdown(quote_html, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
     
     # 詳細ページへのリンクを追加
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button(f"詳細を見る", key=f"home_detail_{index}"):
-            # セッション状態に書籍タイトルを保存
-            st.session_state.selected_book_title = title
-            # BookDetailページにリダイレクト
-            st.switch_page("pages/BookDetail.py")
+    st.markdown(f"### ハイライト {index+1}: {title}")
+    
+    # URLエンコードしたタイトルをクエリパラメータとして渡す
+    encoded_title = urllib.parse.quote(title)
+    
+    # セッション状態に書籍タイトルを保存
+    if st.button(f"📖 「{title}」の詳細を見る", key=f"detail_button_{index}", use_container_width=True):
+        st.session_state.selected_book_title = title
+        st.write(f"選択された書籍: {title}")
+        st.write("詳細ページに移動します...")
+        st.switch_page("pages/BookDetail.py")
 
 def load_user_highlights(user_id):
     """ユーザー固有のハイライトを読み込む"""

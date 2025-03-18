@@ -368,9 +368,20 @@ def main():
     # ページタイトル
     st.title("書籍詳細ページ")
     
-    # セッション状態から書籍タイトルを取得
-    if "selected_book_title" in st.session_state:
+    # クエリパラメータから書籍タイトルを取得
+    query_params = st.query_params
+    
+    # クエリパラメータから書籍タイトルを取得
+    if "title" in query_params:
+        book_title = query_params["title"][0]
+        # デバッグ情報
+        st.write(f"クエリパラメータから取得した書籍タイトル: {book_title}")
+    elif "selected_book_title" in st.session_state:
         book_title = st.session_state.selected_book_title
+        # デバッグ情報
+        st.write(f"セッション状態から取得した書籍タイトル: {book_title}")
+        # セッション状態をクリア（次回のために）
+        del st.session_state.selected_book_title
     else:
         st.error("書籍タイトルが指定されていません。")
         st.markdown("[← 書籍一覧に戻る](pages/BookList.py)")
@@ -432,9 +443,11 @@ def main():
     
     # 該当書籍タイトルに一致するハイライトのみフィルタ
     norm_target = normalize_japanese_text(book_title)
+    
     filtered = []
     for hl in all_highlights:
-        if normalize_japanese_text(hl["title"]) == norm_target:
+        # 正確に一致するタイトルのハイライトのみを表示
+        if hl["title"] == book_title:
             filtered.append(hl)
     
     if not filtered:
