@@ -63,6 +63,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // ハイライト収集ボタン
   collectBtn.addEventListener('click', function() {
+    // ボタンを無効化
+    collectBtn.disabled = true;
+    
     // 現在のタブでコンテンツスクリプトを実行
     chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
       const currentTab = tabs[0];
@@ -70,33 +73,69 @@ document.addEventListener('DOMContentLoaded', function() {
       // Kindleページかどうかを確認（テストページも許可）
       if (!currentTab.url.includes('read.amazon') && !currentTab.url.includes('test-page.html') && !currentTab.url.includes('file://')) {
         showStatus('error', 'Kindle Web Readerページを開いてください');
+        collectBtn.disabled = false;
         return;
       }
       
-      showStatus('info', 'ハイライトを収集中...');
+      // 進捗表示
+      showProgressMessage('ハイライトを収集中...', 20);
       
       // コンテンツスクリプトにメッセージを送信
       chrome.tabs.sendMessage(currentTab.id, { action: 'collectHighlights' }, function(response) {
         if (chrome.runtime.lastError) {
-          showStatus('error', 'ページとの通信に失敗しました: ' + chrome.runtime.lastError.message);
+          showDetailedError('ページとの通信に失敗しました: ' + chrome.runtime.lastError.message);
+          collectBtn.disabled = false;
           return;
         }
         
-        if (response && response.success) {
-          // バックグラウンドスクリプトにハイライトを送信
-          chrome.runtime.sendMessage(
-            { action: 'sendHighlights', highlights: response.data.highlights },
-            function(apiResponse) {
-              if (apiResponse && apiResponse.success) {
-                showStatus('success', apiResponse.message);
-              } else {
-                showStatus('error', apiResponse ? apiResponse.message : 'APIとの通信に失敗しました');
-              }
-            }
-          );
-        } else {
-          showStatus('error', response ? response.message : 'ハイライトの収集に失敗しました');
+        if (!response) {
+          showDetailedError('ページからの応答がありません。ページが正しく読み込まれているか確認してください。');
+          collectBtn.disabled = false;
+          return;
         }
+        
+        if (!response.success) {
+          showDetailedError(response.message || 'ハイライトの収集に失敗しました');
+          collectBtn.disabled = false;
+          return;
+        }
+        
+        // 進捗表示の更新
+        showProgressMessage('ハイライトをサーバーに送信中...', 60);
+        
+        // バックグラウンドスクリプトにハイライトを送信
+        chrome.runtime.sendMessage(
+          { action: 'sendHighlights', highlights: response.data.highlights },
+          function(apiResponse) {
+            if (chrome.runtime.lastError) {
+              showDetailedError('バックグラウンドスクリプトとの通信に失敗しました: ' + chrome.runtime.lastError.message);
+              collectBtn.disabled = false;
+              return;
+            }
+            
+            if (!apiResponse) {
+              showDetailedError('バックグラウンドスクリプトからの応答がありません');
+              collectBtn.disabled = false;
+              return;
+            }
+            
+            if (apiResponse.success) {
+              if (apiResponse.offline) {
+                showStatus('warning', apiResponse.message || 'オフラインモードでハイライトを保存しました');
+              } else {
+                // 成功メッセージと総ハイライト数を表示
+                const totalMessage = apiResponse.total_highlights ? 
+                  `（合計: ${apiResponse.total_highlights}件）` : '';
+                showStatus('success', `${apiResponse.message} ${totalMessage}`);
+              }
+            } else {
+              showDetailedError(apiResponse.message || 'APIとの通信に失敗しました');
+            }
+            
+            // ボタンを再度有効化
+            collectBtn.disabled = false;
+          }
+        );
       });
     });
   });
@@ -105,6 +144,42 @@ document.addEventListener('DOMContentLoaded', function() {
   function showStatus(type, message) {
     statusDiv.className = 'status ' + type;
     statusDiv.textContent = message;
+  }
+  
+  // 詳細なエラーメッセージの表示
+  function showDetailedError(error) {
+    // エラーの種類に応じた詳細メッセージを表示
+    let detailedMessage = "エラーが発生しました。";
+    
+    if (error.includes("401")) {
+      detailedMessage = "認証エラー：アカウントに再ログインしてください。";
+    } else if (error.includes("404")) {
+      detailedMessage = "APIエンドポイントが見つかりません。開発者にお問い合わせください。";
+    } else if (error.includes("500")) {
+      detailedMessage = "サーバーエラー：しばらく時間をおいて再試行してください。";
+    } else if (error.includes("timeout")) {
+      detailedMessage = "タイムアウト：サーバーの応答に時間がかかっています。";
+    } else if (error.includes("network")) {
+      detailedMessage = "ネットワーク接続を確認してください。";
+    } else {
+      detailedMessage = error;
+    }
+    
+    showStatus('error', detailedMessage);
+  }
+  
+  // 進捗表示付きのメッセージ
+  function showProgressMessage(message, progress) {
+    statusDiv.className = 'status info';
+    
+    // 進捗バーHTML
+    const progressBarHtml = `
+      <div class="progress-container">
+        <div class="progress-bar" style="width: ${progress}%"></div>
+      </div>
+    `;
+    
+    statusDiv.innerHTML = `${message} ${progressBarHtml}`;
   }
   
   // ネットワーク状態の更新

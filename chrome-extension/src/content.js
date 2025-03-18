@@ -35,13 +35,15 @@ function collectHighlights() {
     // 書籍情報の取得
     const bookTitle = document.querySelector('.reader-title') || 
                       document.querySelector('.book-title') || 
+                      document.querySelector('.kindle-title') ||
                       document.querySelector('h1') || 
                       document.title || 'Unknown Book';
-    const bookTitleText = bookTitle ? bookTitle.textContent.trim() : 'Unknown Book';
+    const bookTitleText = bookTitle.textContent ? bookTitle.textContent.trim() : 'Unknown Book';
     
     const authorElement = document.querySelector('.reader-author') || 
-                          document.querySelector('.book-author') || 
-                          document.querySelector('h2');
+                         document.querySelector('.book-author') || 
+                         document.querySelector('.kindle-author') ||
+                         document.querySelector('h2');
     const author = authorElement ? authorElement.textContent.trim() : 'Unknown Author';
     
     console.log(`Booklight AI: 書籍「${bookTitleText}」(${author})のハイライトを収集します`);
@@ -53,7 +55,11 @@ function collectHighlights() {
       '.kindle-highlight',
       '.highlight',
       '.a-size-base-plus.a-color-base',
-      'div.a-row.a-spacing-top-extra-large'
+      'div.a-row.a-spacing-top-extra-large',
+      '.kp-notebook-highlight-text', // Kindleの新しいセレクタ
+      '.a-row.a-spacing-base', // 別の可能性
+      '.kp-notebook-cover-annotation-container', // ノートブックカバーのコンテナ
+      '.kp-notebook-library-annotation-container' // ライブラリアノテーションコンテナ
     ];
     
     let highlightElements = [];
@@ -61,7 +67,7 @@ function collectHighlights() {
       const elements = document.querySelectorAll(selector);
       if (elements && elements.length > 0) {
         highlightElements = Array.from(elements);
-        console.log(`Booklight AI: セレクタ '${selector}' でハイライトを検出しました`);
+        console.log(`Booklight AI: セレクタ '${selector}' でハイライトを検出しました (${elements.length}件)`);
         break;
       }
     }
@@ -77,16 +83,51 @@ function collectHighlights() {
     console.log(`Booklight AI: ${highlightElements.length}件のハイライトを検出しました`);
     
     // ハイライトデータの作成
-    const highlights = highlightElements.map(element => {
+    const highlights = highlightElements.map((element, index) => {
       // テキストコンテンツを取得
-      let content = element.textContent ? element.textContent.trim() : '';
+      let content = '';
+      
+      // テキスト要素の検索優先順位
+      const textSelectors = [
+        '.kp-notebook-highlight-text',       // 標準的なKindleハイライトテキスト
+        '.a-size-base-plus.a-color-base',    // 代替セレクタ
+        '.highlight-text',                   // 別の可能性
+        '.a-size-base'                       // さらに別の可能性
+      ];
+      
+      // 指定されたセレクタでテキスト要素を探す
+      for (const selector of textSelectors) {
+        const textElement = element.querySelector(selector);
+        if (textElement && textElement.textContent) {
+          content = textElement.textContent.trim();
+          break;
+        }
+      }
+      
+      // セレクタでテキストが見つからなければ、要素自体のテキストを使用
+      if (!content && element.textContent) {
+        content = element.textContent.trim();
+      }
       
       // 位置情報の取得
       let location = '';
-      const locationElement = element.querySelector('.a-color-secondary');
-      if (locationElement) {
-        location = locationElement.textContent.trim();
+      const locationSelectors = [
+        '.kp-notebook-highlight-location',
+        '.a-color-secondary',
+        '.highlight-location',
+        '.a-size-small'
+      ];
+      
+      for (const selector of locationSelectors) {
+        const locationElement = element.querySelector(selector) || 
+                               element.parentElement?.querySelector(selector);
+        if (locationElement && locationElement.textContent) {
+          location = locationElement.textContent.trim();
+          break;
+        }
       }
+      
+      console.log(`Booklight AI: ハイライト #${index + 1} 抽出: ${content.substring(0, 30)}...`);
       
       return {
         book_title: bookTitleText,

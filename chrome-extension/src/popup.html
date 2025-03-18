@@ -17,6 +17,7 @@
     .success { background-color: #d4edda; color: #155724; }
     .error { background-color: #f8d7da; color: #721c24; }
     .info { background-color: #d1ecf1; color: #0c5460; }
+    .warning { background-color: #fff3cd; color: #856404; }
     button {
       width: 100%;
       padding: 8px;
@@ -28,6 +29,7 @@
       cursor: pointer;
     }
     button:hover { background-color: #3367d6; }
+    button:disabled { background-color: #cccccc; cursor: not-allowed; }
     .login-section, .highlights-section { margin-top: 15px; }
     .header {
       display: flex;
@@ -51,6 +53,22 @@
     }
     .online .status-dot { background-color: #28a745; }
     .offline .status-dot { background-color: #dc3545; }
+    
+    /* 進捗バーのスタイル */
+    .progress-container {
+      width: 100%;
+      height: 8px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background-color: #4285f4;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
   </style>
 </head>
 <body>
