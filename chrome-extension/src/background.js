@@ -1,6 +1,6 @@
 // APIエンドポイント設定
-// const API_BASE_URL = 'http://localhost:8000'; // 開発環境
-const API_BASE_URL = 'https://your-booklight-api.herokuapp.com'; // 本番環境
+const API_BASE_URL = 'http://localhost:8000'; // 開発環境
+// const API_BASE_URL = 'https://your-booklight-api.herokuapp.com'; // 本番環境
 
 // 開発モードの設定
 const DEV_MODE = false; // 本番環境ではfalseに設定
