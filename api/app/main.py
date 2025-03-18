@@ -109,8 +109,11 @@ async def login_via_google(request: Request):
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @app.get("/auth/callback")
-async def auth_callback(request: Request):
-    """Google OAuth認証のコールバックエンドポイント"""
+async def auth_callback(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Google OAuth認証のコールバックエンドポイント（DB版）"""
     try:
         token = await oauth.google.authorize_access_token(request)
         user_info = await oauth.google.parse_id_token(request, token)
@@ -124,6 +127,21 @@ async def auth_callback(request: Request):
             "picture": user_info.get("picture"),
             "disabled": False
         }
+        
+        # データベースにユーザー情報を保存
+        db_user = db.query(models.User).filter(models.User.google_id == user_data["google_id"]).first()
+        if not db_user:
+            db_user = models.User(
+                username=user_data["username"],
+                email=user_data["email"],
+                full_name=user_data["full_name"],
+                picture=user_data["picture"],
+                google_id=user_data["google_id"],
+                disabled=0
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
         
         # JWTトークンの生成
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -141,11 +159,14 @@ async def auth_callback(request: Request):
         return RedirectResponse(url=error_redirect)
 
 @app.post("/auth/google/token", response_model=Token)
-async def auth_with_google_token(token_data: GoogleToken):
-    """Google IDトークンを検証してユーザー情報を取得"""
+async def auth_with_google_token(
+    token_data: GoogleToken,
+    db: Session = Depends(get_db)
+):
+    """Google IDトークンを検証してユーザー情報を取得（DB版）"""
     try:
         # Googleトークンを検証してユーザー情報を取得
-        user_info = await authenticate_with_google(token_data.token)
+        user_info = await authenticate_with_google(token_data.token, db)
         
         # アクセストークンを生成
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)

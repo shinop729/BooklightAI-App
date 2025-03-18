@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
 from pathlib import Path
+from sqlalchemy.orm import Session
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -12,6 +13,9 @@ from pydantic import BaseModel
 import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
+
+from database.base import get_db
+import database.models as models
 
 # 環境変数の読み込み
 load_dotenv()
@@ -26,7 +30,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 
-# ユーザーデータディレクトリ
+# ユーザーデータディレクトリ（後方互換性のため）
 USER_DATA_DIR = Path("user_data")
 USER_INFO_FILE = "user_info.json"
 
@@ -62,9 +66,9 @@ fake_users_db = {
     }
 }
 
-# ユーザーデータの保存と取得
+# ユーザーデータの保存と取得（後方互換性のため）
 def save_user_to_file(user_data: Dict):
-    """ユーザー情報をJSONファイルに保存"""
+    """ユーザー情報をJSONファイルに保存（後方互換性のため）"""
     user_id = user_data.get("username") or user_data.get("email").split('@')[0]
     user_dir = USER_DATA_DIR / "docs" / user_id
     user_dir.mkdir(parents=True, exist_ok=True)
@@ -76,7 +80,7 @@ def save_user_to_file(user_data: Dict):
     return user_id
 
 def get_user_from_file(user_id: str) -> Optional[Dict]:
-    """ユーザー情報をJSONファイルから取得"""
+    """ユーザー情報をJSONファイルから取得（後方互換性のため）"""
     user_file = USER_DATA_DIR / "docs" / user_id / USER_INFO_FILE
     if not user_file.exists():
         return None
@@ -84,19 +88,65 @@ def get_user_from_file(user_id: str) -> Optional[Dict]:
     with open(user_file, 'r', encoding='utf-8') as f:
         return json.load(f)
 
+# データベースからユーザーを取得または作成
+def get_or_create_user_in_db(db: Session, user_data: Dict) -> models.User:
+    """ユーザーをデータベースから取得、存在しない場合は作成"""
+    username = user_data.get("username")
+    email = user_data.get("email")
+    google_id = user_data.get("google_id")
+    
+    # ユーザーの検索条件
+    if google_id:
+        db_user = db.query(models.User).filter(models.User.google_id == google_id).first()
+    elif email:
+        db_user = db.query(models.User).filter(models.User.email == email).first()
+    elif username:
+        db_user = db.query(models.User).filter(models.User.username == username).first()
+    else:
+        return None
+    
+    # ユーザーが存在しない場合は作成
+    if not db_user:
+        db_user = models.User(
+            username=username,
+            email=email,
+            full_name=user_data.get("full_name"),
+            picture=user_data.get("picture"),
+            google_id=google_id,
+            disabled=0 if not user_data.get("disabled") else 1
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    
+    return db_user
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def get_user(db, username: str):
+def get_user(db, username: str, db_session: Session = None):
     # まずメモリ内のユーザーデータを確認
     if username in db:
         user_dict = db[username]
         return UserInDB(**user_dict)
     
-    # ファイルからユーザーデータを取得
+    # データベースからユーザーデータを取得
+    if db_session:
+        db_user = db_session.query(models.User).filter(models.User.username == username).first()
+        if db_user:
+            return User(
+                username=db_user.username,
+                email=db_user.email,
+                full_name=db_user.full_name,
+                picture=db_user.picture,
+                google_id=db_user.google_id,
+                disabled=bool(db_user.disabled)
+            )
+    
+    # 後方互換性のため、ファイルからユーザーデータを取得
     user_dict = get_user_from_file(username)
     if user_dict:
         return UserInDB(**user_dict)
@@ -123,7 +173,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     if token is None:
         return None
         
@@ -141,7 +191,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     
     # ユーザー情報の取得
-    user = get_user(fake_users_db, username)
+    user = get_user(fake_users_db, username, db)
     if user is None:
         raise credentials_exception
     return user
@@ -158,7 +208,7 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 # Google OAuth認証用の関数
-async def authenticate_with_google(token: str):
+async def authenticate_with_google(token: str, db: Session = None):
     """Googleトークンを検証してユーザー情報を取得"""
     try:
         # IDトークンの検証
@@ -193,7 +243,11 @@ async def authenticate_with_google(token: str):
                 "disabled": False
             }
             
-            # ユーザー情報の保存
+            # データベースにユーザー情報を保存
+            if db:
+                db_user = get_or_create_user_in_db(db, user_info)
+            
+            # 後方互換性のため、ファイルにも保存
             user_id = save_user_to_file(user_info)
             
             return user_info
