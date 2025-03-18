@@ -150,22 +150,40 @@ document.addEventListener('DOMContentLoaded', function() {
   function showDetailedError(error) {
     // エラーの種類に応じた詳細メッセージを表示
     let detailedMessage = "エラーが発生しました。";
+    let errorDetails = "";
     
     if (error.includes("401")) {
       detailedMessage = "認証エラー：アカウントに再ログインしてください。";
+      errorDetails = "認証トークンが無効か期限切れです。ログアウトして再度ログインしてください。";
     } else if (error.includes("404")) {
-      detailedMessage = "APIエンドポイントが見つかりません。開発者にお問い合わせください。";
+      detailedMessage = "APIエンドポイントが見つかりません。";
+      errorDetails = "サーバーが見つからないか、リクエストされたリソースが存在しません。開発者にお問い合わせください。";
     } else if (error.includes("500")) {
       detailedMessage = "サーバーエラー：しばらく時間をおいて再試行してください。";
+      errorDetails = "サーバー内部でエラーが発生しました。問題が解決しない場合は、開発者にお問い合わせください。";
     } else if (error.includes("timeout")) {
       detailedMessage = "タイムアウト：サーバーの応答に時間がかかっています。";
+      errorDetails = "サーバーからの応答がありませんでした。インターネット接続を確認し、しばらく時間をおいて再試行してください。";
     } else if (error.includes("network")) {
       detailedMessage = "ネットワーク接続を確認してください。";
+      errorDetails = "インターネット接続に問題があります。Wi-Fi接続を確認し、再試行してください。";
     } else {
-      detailedMessage = error;
+      detailedMessage = "予期しないエラーが発生しました。";
+      errorDetails = error;
     }
     
+    // ステータスメッセージを表示
     showStatus('error', detailedMessage);
+    
+    // 詳細なエラーメッセージを表示
+    const errorDetailsElement = document.getElementById('errorDetails');
+    errorDetailsElement.textContent = errorDetails;
+    errorDetailsElement.style.display = 'block';
+    
+    // 3秒後に詳細メッセージを非表示にする
+    setTimeout(() => {
+      errorDetailsElement.style.display = 'none';
+    }, 10000);
   }
   
   // 進捗表示付きのメッセージ
@@ -180,6 +198,20 @@ document.addEventListener('DOMContentLoaded', function() {
     `;
     
     statusDiv.innerHTML = `${message} ${progressBarHtml}`;
+    
+    // エラー詳細を非表示
+    document.getElementById('errorDetails').style.display = 'none';
+  }
+  
+  // トースト通知を表示
+  function showToast(message, duration = 3000) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+      toast.classList.remove('show');
+    }, duration);
   }
   
   // ネットワーク状態の更新

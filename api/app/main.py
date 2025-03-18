@@ -30,6 +30,36 @@ app = FastAPI(
     version="0.1.0"
 )
 
+# グローバルなエラーハンドラ
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """HTTPExceptionのハンドラ"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "status": "error",
+            "message": exc.detail,
+            "code": exc.status_code
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """一般的な例外のハンドラ"""
+    # エラーをログに記録
+    print(f"予期しないエラー: {str(exc)}")
+    import traceback
+    traceback.print_exc()
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "status": "error",
+            "message": "サーバー内部エラーが発生しました",
+            "details": str(exc) if os.getenv("DEBUG") == "true" else None
+        }
+    )
+
 # CORS設定
 app.add_middleware(
     CORSMiddleware,
