@@ -8,6 +8,7 @@
     "https://read.amazon.co.jp/*",
     "https://read.amazon.com/*",
     "http://localhost:8000/*",
+    "https://your-booklight-api.herokuapp.com/*",
     "https://accounts.google.com/*",
     "https://oauth2.googleapis.com/*",
     "file:///*"
@@ -26,7 +27,11 @@
       "js": ["src/content.js"]
     },
     {
-      "matches": ["http://localhost:8505/*", "http://localhost:8000/auth/callback*"],
+      "matches": [
+        "http://localhost:8505/*", 
+        "http://localhost:8000/auth/callback*",
+        "https://your-booklight-api.herokuapp.com/auth/callback*"
+      ],
       "js": ["src/auth-callback.js"]
     }
   ],

@@ -1,9 +1,9 @@
 // APIエンドポイント設定
-const API_BASE_URL = 'http://localhost:8000'; // 開発環境
-// const API_BASE_URL = 'https://your-production-api.com'; // 本番環境
+// const API_BASE_URL = 'http://localhost:8000'; // 開発環境
+const API_BASE_URL = 'https://your-booklight-api.herokuapp.com'; // 本番環境
 
 // 開発モードの設定
-const DEV_MODE = true; // 開発中はtrueに設定
+const DEV_MODE = false; // 本番環境ではfalseに設定
 
 // ダミーデータのインポート（開発用）
 let dummyData = null;
@@ -118,8 +118,33 @@ async function authenticateWithGoogle() {
 async function openGoogleAuthTab() {
   try {
     const authUrl = `${API_BASE_URL}/auth/google`;
-    const tab = await chrome.tabs.create({ url: authUrl });
-    return tab.id;
+    console.log('Booklight AI: Google認証ページを開きます', authUrl);
+    
+    // 新しいタブで認証ページを開く
+    const tab = await chrome.tabs.create({ 
+      url: authUrl,
+      active: true // ユーザーに認証ページを表示するために、タブをアクティブにする
+    });
+    
+    // タブの読み込み完了を待機
+    return new Promise((resolve) => {
+      const tabLoadListener = (tabId, changeInfo) => {
+        if (tabId === tab.id && changeInfo.status === 'complete') {
+          console.log('Booklight AI: 認証ページの読み込みが完了しました');
+          chrome.tabs.onUpdated.removeListener(tabLoadListener);
+          resolve(tab.id);
+        }
+      };
+      
+      chrome.tabs.onUpdated.addListener(tabLoadListener);
+      
+      // タイムアウト処理（30秒後）
+      setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(tabLoadListener);
+        console.log('Booklight AI: 認証ページの読み込みがタイムアウトしました');
+        resolve(tab.id); // タイムアウトしても、タブIDは返す
+      }, 30000);
+    });
   } catch (error) {
     console.error('Booklight AI: 認証ページを開けませんでした', error);
     return null;
@@ -133,6 +158,7 @@ async function validateToken() {
     
     // トークンがない場合
     if (!authData.authToken) {
+      console.log('Booklight AI: 認証トークンがありません');
       return false;
     }
     
@@ -140,11 +166,32 @@ async function validateToken() {
     const now = Date.now();
     const tokenAge = now - (authData.authTime || 0);
     if (tokenAge > 30 * 60 * 1000) {
-      // トークンの有効期限切れ
+      console.log('Booklight AI: 認証トークンの有効期限が切れています');
       return false;
     }
     
-    return true;
+    // APIを使用してトークンの有効性を確認（オプション）
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/user`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authData.authToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        console.log('Booklight AI: 認証トークンが無効です', response.status);
+        return false;
+      }
+      
+      // トークンが有効な場合、有効期限を更新
+      await chrome.storage.local.set({ 'authTime': Date.now() });
+      return true;
+    } catch (error) {
+      console.error('Booklight AI: トークン検証中にエラーが発生しました', error);
+      // ネットワークエラーの場合は、トークンの有効期限だけで判断
+      return tokenAge <= 30 * 60 * 1000;
+    }
   } catch (error) {
     console.error('Booklight AI: トークン検証エラー', error);
     return false;
@@ -165,6 +212,7 @@ async function sendHighlightsToAPI(highlights) {
     // トークンの有効性を確認
     const isTokenValid = await validateToken();
     if (!isTokenValid) {
+      console.log('Booklight AI: 認証トークンが無効なため、再認証を行います');
       // 再認証
       const authResult = await authenticateWithGoogle();
       if (!authResult.success) {
@@ -193,6 +241,17 @@ async function sendHighlightsToAPI(highlights) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Booklight AI: APIエラー', response.status, errorText);
+      
+      // 認証エラーの場合
+      if (response.status === 401) {
+        // 認証トークンをクリアして再認証を促す
+        await chrome.storage.local.remove(['authToken', 'authTime']);
+        return { 
+          success: false, 
+          message: '認証の有効期限が切れました。再度ログインしてください。' 
+        };
+      }
+      
       return { 
         success: false, 
         message: `APIエラー: ${response.status} ${response.statusText}` 
@@ -204,10 +263,23 @@ async function sendHighlightsToAPI(highlights) {
     
     return { 
       success: true, 
-      message: data.message || `${highlights.length}件のハイライトを保存しました` 
+      message: data.message || `${highlights.length}件のハイライトを保存しました`,
+      total_highlights: data.total_highlights
     };
   } catch (error) {
     console.error('Booklight AI: API通信エラー', error);
+    
+    // オフライン判定
+    if (!navigator.onLine || error.name === 'TypeError') {
+      // オフラインモードでキャッシュに保存
+      cacheHighlights(highlights);
+      return { 
+        success: true, 
+        offline: true,
+        message: 'オフラインモードでハイライトを保存しました。オンラインになったら自動的に同期されます。' 
+      };
+    }
+    
     return { 
       success: false, 
       message: `通信エラー: ${error.message}` 
