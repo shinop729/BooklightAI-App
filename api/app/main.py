@@ -9,12 +9,15 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
+from sqlalchemy.orm import Session
 
 from app.auth import (
     User, authenticate_user, create_access_token, 
     get_current_active_user, authenticate_with_google,
     ACCESS_TOKEN_EXPIRE_MINUTES, oauth
 )
+from database.base import get_db
+import database.models as models
 from database.base import engine, Base
 
 # データベーステーブルの作成
@@ -90,7 +93,13 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "user_id": user.username,
+        "email": user.email,
+        "full_name": user.full_name
+    }
 
 # Google OAuth認証関連のエンドポイント
 @app.get("/auth/google")
@@ -175,11 +184,95 @@ async def get_current_user(current_user: User = Depends(get_current_active_user)
 
 # ハイライト管理API
 @app.post("/api/highlights")
-async def upload_highlights(data: HighlightUpload, user_id: str = Depends(get_current_user)):
-    """Chromeエクステンションからのハイライトアップロード"""
+async def upload_highlights(
+    data: HighlightUpload, 
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Chromeエクステンションからのハイライトアップロード（DB保存版）"""
     try:
-        # ユーザーディレクトリの確認
-        user_dir = USER_DATA_DIR / user_id
+        # ユーザーIDの取得
+        db_user = db.query(models.User).filter(models.User.username == current_user.username).first()
+        if not db_user:
+            # ユーザーが存在しない場合は作成
+            db_user = models.User(
+                username=current_user.username,
+                email=current_user.email,
+                full_name=current_user.full_name,
+                picture=current_user.picture,
+                google_id=current_user.google_id,
+                disabled=0 if not current_user.disabled else 1
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+        
+        user_id = db_user.id
+        
+        # 新しいハイライトを処理
+        new_count = 0
+        for h in data.highlights:
+            # 書籍の取得または新規作成
+            book = db.query(models.Book).filter(
+                models.Book.title == h.book_title,
+                models.Book.author == h.author
+            ).first()
+            
+            if not book:
+                book = models.Book(
+                    title=h.book_title,
+                    author=h.author
+                )
+                db.add(book)
+                db.commit()
+                db.refresh(book)
+            
+            # ハイライトの重複チェック
+            existing_highlight = db.query(models.Highlight).filter(
+                models.Highlight.user_id == user_id,
+                models.Highlight.book_id == book.id,
+                models.Highlight.content == h.content
+            ).first()
+            
+            if not existing_highlight:
+                # 新規ハイライトの追加
+                highlight = models.Highlight(
+                    content=h.content,
+                    location=h.location,
+                    user_id=user_id,
+                    book_id=book.id
+                )
+                db.add(highlight)
+                new_count += 1
+        
+        # 変更をコミット
+        db.commit()
+        
+        # 後方互換性のために、ファイルベースの保存も維持（一時的）
+        _save_highlights_to_file(current_user.username, data.highlights)
+        
+        # 総ハイライト数を取得
+        total_highlights = db.query(models.Highlight).filter(
+            models.Highlight.user_id == user_id
+        ).count()
+        
+        return {
+            "status": "success", 
+            "message": f"{new_count} 件のハイライトを追加しました",
+            "total_highlights": total_highlights
+        }
+    
+    except Exception as e:
+        db.rollback()  # エラー時はロールバック
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"ハイライトの保存中にエラーが発生しました: {str(e)}"
+        )
+
+def _save_highlights_to_file(username, highlights):
+    """CSVとテキストファイルにもハイライトを保存（後方互換性用）"""
+    try:
+        user_dir = USER_DATA_DIR / username
         user_dir.mkdir(parents=True, exist_ok=True)
         
         # 既存のハイライトがあれば読み込む
@@ -191,7 +284,7 @@ async def upload_highlights(data: HighlightUpload, user_id: str = Depends(get_cu
         
         # 新しいハイライトをDataFrameに変換
         new_highlights = []
-        for h in data.highlights:
+        for h in highlights:
             new_highlights.append({
                 "書籍タイトル": h.book_title,
                 "著者": h.author,
@@ -209,53 +302,60 @@ async def upload_highlights(data: HighlightUpload, user_id: str = Depends(get_cu
         # CSVとして保存
         df_combined.to_csv(highlights_path, index=False)
         
-        # テキストファイルとしても保存（既存の形式を維持）
+        # テキストファイルとしても保存
         txt_path = user_dir / "KindleHighlights.txt"
         with open(txt_path, "w", encoding="utf-8") as f:
             for _, row in df_combined.iterrows():
                 f.write(f"{row['書籍タイトル']} ({row['著者']})\n")
                 f.write(f"- {row['ハイライト内容']}\n\n")
-        
-        return {
-            "status": "success", 
-            "message": f"{len(df_new)} 件のハイライトを追加しました",
-            "total_highlights": len(df_combined)
-        }
-    
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"ハイライトの保存中にエラーが発生しました: {str(e)}"
-        )
+        print(f"ファイル保存エラー（無視します）: {e}")
 
 # ハイライト取得API
 @app.get("/api/highlights")
-async def get_highlights(book_title: Optional[str] = None, user_id: str = Depends(get_current_user)):
-    """ユーザーのハイライトを取得"""
+async def get_highlights(
+    book_title: Optional[str] = None, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """ユーザーのハイライトをDBから取得"""
     try:
-        # ユーザーディレクトリの確認
-        user_dir = USER_DATA_DIR / user_id
-        highlights_path = user_dir / "KindleHighlights.csv"
-        
-        if not highlights_path.exists():
+        # ユーザーIDの取得
+        db_user = db.query(models.User).filter(models.User.username == current_user.username).first()
+        if not db_user:
             return {"highlights": [], "count": 0}
         
-        # ハイライトを読み込む
-        df = pd.read_csv(highlights_path)
+        user_id = db_user.id
+        
+        # ハイライトのクエリ
+        query = db.query(
+            models.Highlight.content,
+            models.Highlight.location,
+            models.Book.title,
+            models.Book.author
+        ).join(
+            models.Book
+        ).filter(
+            models.Highlight.user_id == user_id
+        )
         
         # 特定の書籍のハイライトのみを取得
         if book_title:
-            df = df[df["書籍タイトル"] == book_title]
+            query = query.filter(models.Book.title == book_title)
+        
+        # クエリ実行
+        results = query.all()
         
         # 結果を整形
-        highlights = []
-        for _, row in df.iterrows():
-            highlights.append({
-                "book_title": row["書籍タイトル"],
-                "author": row["著者"],
-                "content": row["ハイライト内容"],
-                "location": row.get("位置", "")
-            })
+        highlights = [
+            {
+                "book_title": result.title,
+                "author": result.author,
+                "content": result.content,
+                "location": result.location
+            }
+            for result in results
+        ]
         
         return {"highlights": highlights, "count": len(highlights)}
     
