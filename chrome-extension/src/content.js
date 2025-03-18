@@ -1,16 +1,17 @@
 // ダミーデータのインポート（開発用）
 let dummyData = null;
+// 注: コンテンツスクリプトではimportScriptsは使用できません
+// 代わりにダミーデータを直接定義するか、バックグラウンドスクリプトから取得する必要があります
 try {
-  // 開発環境でのみ利用可能
-  if (typeof importScripts === 'function') {
-    importScripts('dummy-data.js');
-    dummyData = {
-      dummyHighlights,
-      simulateHighlightCollection
-    };
-  }
+  // 開発モードの場合、バックグラウンドスクリプトからダミーデータを取得
+  chrome.runtime.sendMessage({ action: 'getDummyData' }, function(response) {
+    if (response && response.success) {
+      dummyData = response.data;
+      console.log('Booklight AI: バックグラウンドスクリプトからダミーデータを取得しました');
+    }
+  });
 } catch (e) {
-  console.log('Booklight AI: ダミーデータのインポートに失敗しました（本番環境では正常）', e);
+  console.log('Booklight AI: ダミーデータの取得に失敗しました', e);
 }
 
 // Kindle Web Readerからハイライトを収集する関数
@@ -32,31 +33,34 @@ function collectHighlights() {
     }
     
     // 書籍情報の取得
-    // 注: 実際のKindle Web ReaderのDOM構造に合わせて調整が必要
-    const bookTitle = document.querySelector('.reader-title') ? 
-                      document.querySelector('.reader-title').textContent.trim() : 
-                      document.querySelector('.book-title')?.textContent?.trim() || 
+    const bookTitle = document.querySelector('.reader-title') || 
+                      document.querySelector('.book-title') || 
+                      document.querySelector('h1') || 
                       document.title || 'Unknown Book';
+    const bookTitleText = bookTitle ? bookTitle.textContent.trim() : 'Unknown Book';
     
-    const authorElement = document.querySelector('.reader-author') || document.querySelector('.book-author');
+    const authorElement = document.querySelector('.reader-author') || 
+                          document.querySelector('.book-author') || 
+                          document.querySelector('h2');
     const author = authorElement ? authorElement.textContent.trim() : 'Unknown Author';
     
-    console.log(`Booklight AI: 書籍「${bookTitle}」(${author})のハイライトを収集します`);
+    console.log(`Booklight AI: 書籍「${bookTitleText}」(${author})のハイライトを収集します`);
     
     // ハイライト要素の取得
-    // 注: 実際のKindle Web ReaderのDOM構造に合わせて調整が必要
-    // 複数のセレクタを試行
     const selectors = [
+      'div#annotation-scroller .a-row.a-spacing-top-extra-large.kp-notebook-annotation-container',
       '.kp-notebook-highlight',
       '.kindle-highlight',
-      '.highlight'
+      '.highlight',
+      '.a-size-base-plus.a-color-base',
+      'div.a-row.a-spacing-top-extra-large'
     ];
     
     let highlightElements = [];
     for (const selector of selectors) {
       const elements = document.querySelectorAll(selector);
       if (elements && elements.length > 0) {
-        highlightElements = elements;
+        highlightElements = Array.from(elements);
         console.log(`Booklight AI: セレクタ '${selector}' でハイライトを検出しました`);
         break;
       }
@@ -73,47 +77,19 @@ function collectHighlights() {
     console.log(`Booklight AI: ${highlightElements.length}件のハイライトを検出しました`);
     
     // ハイライトデータの作成
-    const highlights = Array.from(highlightElements).map(element => {
-      // 複数のセレクタを試行してハイライトテキストを取得
-      let content = '';
-      const contentSelectors = [
-        '.kp-notebook-highlight-text',
-        '.highlight-text',
-        '.highlight-content'
-      ];
-      
-      for (const selector of contentSelectors) {
-        const contentElement = element.querySelector(selector);
-        if (contentElement && contentElement.textContent) {
-          content = contentElement.textContent.trim();
-          break;
-        }
-      }
+    const highlights = highlightElements.map(element => {
+      // テキストコンテンツを取得
+      let content = element.textContent ? element.textContent.trim() : '';
       
       // 位置情報の取得
       let location = '';
-      // データ属性から取得
-      if (element.hasAttribute('data-location')) {
-        location = element.getAttribute('data-location');
-      } else {
-        // 位置情報を含む要素を探す
-        const locationSelectors = [
-          '.kp-notebook-highlight-location',
-          '.highlight-location',
-          '.location'
-        ];
-        
-        for (const selector of locationSelectors) {
-          const locationElement = element.querySelector(selector);
-          if (locationElement && locationElement.textContent) {
-            location = locationElement.textContent.trim();
-            break;
-          }
-        }
+      const locationElement = element.querySelector('.a-color-secondary');
+      if (locationElement) {
+        location = locationElement.textContent.trim();
       }
       
       return {
-        book_title: bookTitle,
+        book_title: bookTitleText,
         author: author,
         content: content,
         location: location
@@ -125,7 +101,7 @@ function collectHighlights() {
     return {
       success: true,
       data: {
-        book_title: bookTitle,
+        book_title: bookTitleText,
         author: author,
         highlights: highlights
       }
@@ -208,7 +184,12 @@ function setupMutationObserver() {
     for (const mutation of mutationsList) {
       if (mutation.type === 'childList') {
         // ハイライト要素が追加されたかどうかを確認
-        const selectors = ['.kp-notebook-highlight', '.kindle-highlight', '.highlight'];
+        const selectors = [
+          'div#annotation-scroller .a-row.a-spacing-top-extra-large.kp-notebook-annotation-container',
+          '.kp-notebook-highlight', 
+          '.kindle-highlight', 
+          '.highlight'
+        ];
         
         for (const selector of selectors) {
           const addedHighlights = Array.from(mutation.addedNodes)

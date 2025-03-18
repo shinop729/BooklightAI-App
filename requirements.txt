@@ -1,3 +1,7 @@
+zstandard==0.23.0
+gunicorn==20.1.0
+psycopg2-binary==2.9.9
+alembic==1.13.1
 altair==5.5.0
 annotated-types==0.7.0
 anyio==4.8.0
@@ -66,4 +70,3 @@ tqdm==4.67.1
 typing_extensions==4.12.2
 tzdata==2025.1
 urllib3==2.3.0
-zstandard==0.23.0

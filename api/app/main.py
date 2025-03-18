@@ -15,6 +15,10 @@ from app.auth import (
     get_current_active_user, authenticate_with_google,
     ACCESS_TOKEN_EXPIRE_MINUTES, oauth
 )
+from database.base import engine, Base
+
+# データベーステーブルの作成
+Base.metadata.create_all(bind=engine)
 
 # アプリケーションの初期化
 app = FastAPI(

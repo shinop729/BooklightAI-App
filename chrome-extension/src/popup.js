@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const currentTab = tabs[0];
       
       // Kindleページかどうかを確認（テストページも許可）
-      if (!currentTab.url.includes('read.amazon') && !currentTab.url.includes('test-page.html')) {
+      if (!currentTab.url.includes('read.amazon') && !currentTab.url.includes('test-page.html') && !currentTab.url.includes('file://')) {
         showStatus('error', 'Kindle Web Readerページを開いてください');
         return;
       }

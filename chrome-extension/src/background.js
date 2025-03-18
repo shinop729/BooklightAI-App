@@ -10,7 +10,7 @@ let dummyData = null;
 try {
   // 開発環境でのみ利用可能
   if (typeof importScripts === 'function') {
-    importScripts('dummy-data.js');
+    importScripts('./dummy-data.js');
     dummyData = {
       simulateApiResponse
     };
@@ -100,7 +100,7 @@ async function authenticateWithGoogle() {
       chrome.runtime.onMessage.addListener(messageListener);
       
       // タイムアウト処理（2分後）
-      setTimeout(() => {
+      self.setTimeout(() => {
         chrome.runtime.onMessage.removeListener(messageListener);
         if (authTabId) {
           chrome.tabs.remove(authTabId);
@@ -220,7 +220,7 @@ let pendingHighlights = [];
 
 // オフラインモードの確認
 function isOffline() {
-  return !navigator.onLine;
+  return false; // Service Workerではnavigator.onLineが使えないため、常にオンラインと仮定
 }
 
 // ハイライトをキャッシュに追加
@@ -248,11 +248,13 @@ async function sendCachedHighlights() {
   }
 }
 
-// オンライン状態の変化を監視
-window.addEventListener('online', function() {
-  console.log('Booklight AI: オンラインになりました');
+// オンライン状態の変化を監視（Service Worker対応版）
+// Service Workerではwindowオブジェクトが存在しないため、代替手段を使用
+// 定期的にキャッシュを確認して送信を試みる
+self.setInterval(() => {
+  console.log('Booklight AI: キャッシュ確認');
   sendCachedHighlights();
-});
+}, 60000); // 1分ごとに確認
 
 // 拡張機能のインストール/更新時の処理
 chrome.runtime.onInstalled.addListener(function(details) {
@@ -264,10 +266,8 @@ chrome.runtime.onInstalled.addListener(function(details) {
       pendingHighlights = data.pendingHighlights;
       console.log('Booklight AI: キャッシュを復元しました', pendingHighlights.length);
       
-      // オンラインであればキャッシュを送信
-      if (navigator.onLine) {
-        sendCachedHighlights();
-      }
+      // キャッシュを送信（Service Workerでは常にオンラインと仮定）
+      sendCachedHighlights();
     }
   });
 });
@@ -275,6 +275,34 @@ chrome.runtime.onInstalled.addListener(function(details) {
 // メッセージリスナーを設定
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Booklight AI: バックグラウンドスクリプトがメッセージを受信しました', request);
+  
+  // ダミーデータの提供（コンテンツスクリプト用）
+  if (request.action === 'getDummyData') {
+    if (dummyData) {
+      sendResponse({
+        success: true,
+        data: {
+          dummyHighlights: dummyData.simulateApiResponse([]).dummyHighlights || [],
+          simulateHighlightCollection: function() {
+            return {
+              success: true,
+              data: {
+                book_title: "人工知能と社会の未来",
+                author: "山田太郎",
+                highlights: dummyData.simulateApiResponse([]).dummyHighlights || []
+              }
+            };
+          }
+        }
+      });
+    } else {
+      sendResponse({
+        success: false,
+        message: 'ダミーデータが利用できません'
+      });
+    }
+    return true;
+  }
   
   if (request.action === 'sendHighlights') {
     // オフラインの場合はキャッシュに保存
