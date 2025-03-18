@@ -103,28 +103,19 @@ def display_quote(content, title, author, index=0):
     """
     Home.py用の引用表示関数 - 書籍タイトルをクリックして詳細ページへ遷移
     """
+    # URLエンコードされたタイトル
+    encoded_title = urllib.parse.quote(title)
+    
     # ハイライト内容を表示
     st.markdown(f"""
     <div style="padding:15px; border-radius:8px; background-color:#2a2a2a; margin-bottom:15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
         <p style="color:#ffffff; font-size:16px; line-height:1.6; margin-bottom:12px;">{content}</p>
-        <div style="text-align:right;">
-            <span style="color:#4da6ff; font-weight:500;">{title} / {author}</span>
-        </div>
     </div>
     """, unsafe_allow_html=True)
+  
     
-    # 詳細ページへのリンクを追加
-    st.markdown(f"### ハイライト {index+1}: {title}")
-    
-    # URLエンコードしたタイトルをクエリパラメータとして渡す
-    encoded_title = urllib.parse.quote(title)
-    
-    # セッション状態に書籍タイトルを保存
-    if st.button(f"📖 「{title}」の詳細を見る", key=f"detail_button_{index}", use_container_width=True):
-        st.session_state.selected_book_title = title
-        st.write(f"選択された書籍: {title}")
-        st.write("詳細ページに移動します...")
-        st.switch_page("pages/BookDetail.py")
+    # 書籍タイトルをリンクボタンとして表示
+    st.link_button(f"📚 {title} / {author}", f"pages/BookDetail.py?title={encoded_title}", use_container_width=True)
 
 def load_user_highlights(user_id):
     """ユーザー固有のハイライトを読み込む"""
@@ -147,6 +138,24 @@ def load_user_highlights(user_id):
         )
         docs.append(doc)
     return docs
+
+def display_quote_with_button(content, title, author, index=0):
+    """
+    書籍タイトルをボタンとして表示し、クリックで詳細ページに遷移する関数
+    """
+    # ハイライト内容を表示
+    st.markdown(f"""
+    <div style="padding:15px; border-radius:8px; background-color:#2a2a2a; margin-bottom:15px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+        <p style="color:#ffffff; font-size:16px; line-height:1.6; margin-bottom:12px;">{content}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+  
+    
+    # 書籍タイトルをボタンとして表示
+    if st.button(f"📚 {title} / {author}", key=f"book_button_{index}"):
+        st.session_state.selected_book_title = title
+        st.switch_page("pages/BookDetail.py")
 
 def main():
     setup_app()
@@ -205,12 +214,16 @@ def main():
     if not highlight_docs:
         st.write("ハイライトがありません。")
     else:
-        random_docs = random.sample(highlight_docs, min(3, len(highlight_docs)))
-        for i, doc in enumerate(random_docs):
+        # セッション状態にランダムなハイライトを保存
+        if 'random_highlight_docs' not in st.session_state:
+            st.session_state.random_highlight_docs = random.sample(highlight_docs, min(3, len(highlight_docs)))
+        
+        # セッション状態からハイライトを取得
+        for i, doc in enumerate(st.session_state.random_highlight_docs):
             title = doc.metadata.get("original_title", "不明なタイトル")
             author = doc.metadata.get("original_author", "不明な著者")
             content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
-            display_quote(content, title, author, i)
+            display_quote_with_button(content, title, author, i)
 
 if __name__ == "__main__":
     main()
