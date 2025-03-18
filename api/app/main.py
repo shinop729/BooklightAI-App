@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import json
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import (
     User, authenticate_user, create_access_token, 
@@ -29,6 +30,9 @@ app = FastAPI(
     description="Kindle ハイライト管理のためのAPI",
     version="0.1.0"
 )
+
+# セッションミドルウェアの追加
+app.add_middleware(SessionMiddleware, secret_key="your-secret-key")
 
 # グローバルなエラーハンドラ
 @app.exception_handler(HTTPException)
