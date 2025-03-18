@@ -50,7 +50,8 @@ function collectHighlights() {
     const selectors = [
       '.kp-notebook-highlight',
       '.kindle-highlight',
-      '.highlight'
+      '.highlight',
+      'a-size-base-plus a-color-base'
     ];
     
     let highlightElements = [];
