@@ -66,6 +66,11 @@ class HighlightUpload(BaseModel):
 # ユーザーデータディレクトリ
 USER_DATA_DIR = Path("user_data/docs")
 
+# ルートパスのハンドラー
+@app.get("/")
+async def root():
+    return {"message": "Booklight AI API へようこそ", "version": "0.1.0", "docs_url": "/docs"}
+
 # ヘルスチェックエンドポイント
 @app.get("/health")
 async def health_check():
@@ -262,4 +267,3 @@ async def get_highlights(book_title: Optional[str] = None, user_id: str = Depend
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
