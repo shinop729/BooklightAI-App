@@ -1,81 +1,153 @@
 # Herokuデプロイ手順
 
-このドキュメントでは、BooklightAIアプリケーションをHerokuにデプロイする手順を説明します。
+このドキュメントでは、Booklight AIアプリケーションをHerokuにデプロイする手順を説明します。
 
-## 変更内容
+## 前提条件
 
-1. **統合スクリプト（`run_combined.py`）の作成**
-   - FastAPIとStreamlitを1つのプロセスとして実行するスクリプト
-   - FastAPIはバックグラウンドスレッドで実行
-   - Streamlitはメインプロセスとして実行
+- Herokuアカウント
+- Heroku CLI
+- Git
+- PostgreSQLアドオン（Heroku上で使用）
 
-2. **`Procfile`の修正**
-   - 統合スクリプトを使用するように変更
-
-3. **`Dockerfile`の修正**
-   - 統合スクリプトを使用するように変更
-
-## デプロイ手順
-
-### 1. 変更をコミット
+## 1. Herokuアプリケーションの作成
 
 ```bash
-git add run_combined.py Procfile Dockerfile
-git commit -m "Add combined FastAPI and Streamlit runner for Heroku deployment"
+# Heroku CLIにログイン
+heroku login
+
+# アプリケーションを作成
+heroku create booklight-ai
+
+# PostgreSQLアドオンを追加
+heroku addons:create heroku-postgresql:hobby-dev -a booklight-ai
 ```
 
-### 2. Herokuにプッシュ
+## 2. 環境変数の設定
 
 ```bash
+# JWT認証用のシークレットキー
+heroku config:set JWT_SECRET_KEY="your-secret-key" -a booklight-ai
+
+# Google OAuth認証用の設定
+heroku config:set GOOGLE_CLIENT_ID="your-google-client-id" -a booklight-ai
+heroku config:set GOOGLE_CLIENT_SECRET="your-google-client-secret" -a booklight-ai
+heroku config:set REDIRECT_URI="https://booklight-ai.herokuapp.com/auth/callback" -a booklight-ai
+
+# フロントエンドURL
+heroku config:set FRONTEND_URL="https://booklight-ai.herokuapp.com" -a booklight-ai
+
+# デバッグモード（本番環境ではfalse）
+heroku config:set DEBUG="false" -a booklight-ai
+```
+
+## 3. データベースマイグレーション
+
+```bash
+# Alembicマイグレーションの実行
+heroku run alembic upgrade head -a booklight-ai
+
+# データ移行スクリプトの実行
+heroku run python api/migrate_data.py -a booklight-ai
+```
+
+## 4. デプロイ
+
+```bash
+# Gitリポジトリの初期化（既に初期化されている場合は不要）
+git init
+git add .
+git commit -m "Initial commit"
+
+# Herokuリモートの追加
+heroku git:remote -a booklight-ai
+
+# デプロイ
 git push heroku main
 ```
 
-### 3. 環境変数の設定
-
-Herokuダッシュボードから、または以下のコマンドを使用して環境変数を設定します：
+## 5. アプリケーションの起動
 
 ```bash
-# FastAPIが使用するポート
-heroku config:set API_PORT=8000
+# アプリケーションを起動
+heroku ps:scale web=1 -a booklight-ai
 
-# フロントエンドのURL（Herokuアプリのドメイン）
-heroku config:set FRONTEND_URL=https://<your-heroku-app-name>.herokuapp.com
+# アプリケーションを開く
+heroku open -a booklight-ai
 ```
 
-### 4. デプロイの確認
+## 6. ログの確認
 
 ```bash
-heroku open
+# ログを表示
+heroku logs --tail -a booklight-ai
 ```
 
-ブラウザが開き、Streamlitフロントエンドが表示されることを確認します。
+## 7. トラブルシューティング
 
-## トラブルシューティング
+### データベース接続エラー
 
-### ログの確認
-
-問題が発生した場合は、Herokuのログを確認します：
+データベース接続エラーが発生した場合は、以下のコマンドでデータベースURLを確認してください。
 
 ```bash
-heroku logs --tail
+heroku config:get DATABASE_URL -a booklight-ai
 ```
 
-### よくある問題
+### アプリケーションのクラッシュ
 
-1. **FastAPIが起動しない**
-   - `API_PORT`環境変数が正しく設定されているか確認
-   - ログでエラーメッセージを確認
+アプリケーションがクラッシュした場合は、以下のコマンドでログを確認してください。
 
-2. **Streamlitが起動しない**
-   - ログでエラーメッセージを確認
-   - 必要なパッケージがすべてインストールされているか確認
+```bash
+heroku logs --tail -a booklight-ai
+```
 
-3. **認証リダイレクトが機能しない**
-   - `FRONTEND_URL`環境変数が正しく設定されているか確認
-   - Google OAuth設定が正しいか確認
+### デプロイエラー
 
-## 注意事項
+デプロイエラーが発生した場合は、以下のコマンドでビルドログを確認してください。
 
-- この設定では、FastAPIとStreamlitが同じHerokuアプリ内で実行されます
-- FastAPIは`API_PORT`（デフォルト：8000）で実行され、Streamlitは`PORT`（Herokuが自動的に設定）で実行されます
-- 内部的には、FastAPIはStreamlitからAPIエンドポイントとして利用可能です
+```bash
+heroku builds:info -a booklight-ai
+```
+
+## 8. Chromeエクステンションの設定
+
+Chromeエクステンションのバックグラウンドスクリプト（`chrome-extension/src/background.js`）のAPI URLを本番環境のURLに更新してください。
+
+```javascript
+// APIエンドポイント設定
+const API_BASE_URL = 'https://booklight-ai.herokuapp.com'; // 本番環境
+```
+
+また、マニフェストファイル（`chrome-extension/manifest.json`）のホスト権限も更新してください。
+
+```json
+"host_permissions": [
+  "https://read.amazon.co.jp/*",
+  "https://read.amazon.com/*",
+  "https://booklight-ai.herokuapp.com/*",
+  "https://accounts.google.com/*",
+  "https://oauth2.googleapis.com/*"
+]
+```
+
+## 9. 定期的なバックアップ
+
+データベースの定期的なバックアップを設定することをお勧めします。
+
+```bash
+# バックアップスケジューラーの追加
+heroku addons:create pgbackups:auto-month -a booklight-ai
+
+# 手動バックアップの作成
+heroku pg:backups:capture -a booklight-ai
+```
+
+## 10. スケーリング（必要に応じて）
+
+アプリケーションの負荷が増加した場合は、以下のコマンドでスケーリングを行ってください。
+
+```bash
+# Webプロセスのスケーリング
+heroku ps:scale web=2 -a booklight-ai
+
+# データベースのアップグレード
+heroku addons:upgrade heroku-postgresql:standard-0 -a booklight-ai
