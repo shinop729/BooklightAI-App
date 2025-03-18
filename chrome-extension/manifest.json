@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Booklight AI - Kindle Highlights Collector",
+  "version": "0.1.0",
+  "description": "Kindleのハイライトを自動収集してBooklight AIに送信します",
+  "permissions": ["storage", "activeTab", "scripting", "identity", "tabs"],
+  "host_permissions": [
+    "https://read.amazon.co.jp/*",
+    "https://read.amazon.com/*",
+    "http://localhost:8000/*",
+    "https://accounts.google.com/*",
+    "https://oauth2.googleapis.com/*"
+  ],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://read.amazon.co.jp/*", "https://read.amazon.com/*"],
+      "js": ["src/content.js"]
+    },
+    {
+      "matches": ["http://localhost:8505/*", "http://localhost:8000/auth/callback*"],
+      "js": ["src/auth-callback.js"]
+    }
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
