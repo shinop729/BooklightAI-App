@@ -8,8 +8,12 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
-# .envファイルを読み込む
-load_dotenv()
+# .envファイルを読み込む（存在する場合）
+env_path = Path(__file__).parent / '.env'
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+else:
+    load_dotenv()  # Herokuでは環境変数が直接設定されている
 
 # Google OAuth設定
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
