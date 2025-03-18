@@ -28,7 +28,21 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 # Google OAuth設定
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+# リダイレクトURIの設定（Herokuでは環境変数から取得）
 REDIRECT_URI = os.getenv("REDIRECT_URI")
+if not REDIRECT_URI or 'localhost' in REDIRECT_URI:
+    # 環境変数が設定されていない場合はデフォルト値を使用
+    # 本番環境では適切に設定する必要がある
+    is_heroku = os.getenv("DYNO") is not None  # Herokuで実行されているかどうか
+    if is_heroku:
+        app_name = os.getenv("HEROKU_APP_NAME", "")
+        if app_name:
+            REDIRECT_URI = f"https://{app_name}.herokuapp.com/auth/callback"
+        else:
+            # アプリ名が不明な場合はデフォルト値を使用
+            REDIRECT_URI = "http://localhost:8000/auth/callback"
+    else:
+        REDIRECT_URI = "http://localhost:8000/auth/callback"
 
 # ユーザーデータディレクトリ（後方互換性のため）
 USER_DATA_DIR = Path("user_data")

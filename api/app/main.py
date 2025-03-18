@@ -185,7 +185,19 @@ async def auth_callback(
         )
         
         # フロントエンドにリダイレクト（トークンをクエリパラメータとして渡す）
-        redirect_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:8505')}?token={access_token}&user={user_data['username']}"
+        # Herokuの場合はリクエストのホストを使用
+        frontend_url = os.getenv('FRONTEND_URL')
+        if not frontend_url or 'localhost' in frontend_url:
+            # リクエストのホストからURLを構築
+            host = str(request.base_url)
+            # APIパスを削除してベースURLを取得
+            if '/auth/callback' in host:
+                host = host.split('/auth/callback')[0]
+            elif '/auth/' in host:
+                host = host.split('/auth/')[0]
+            frontend_url = host
+        
+        redirect_url = f"{frontend_url}?token={access_token}&user={user_data['username']}"
         return RedirectResponse(url=redirect_url)
     
     except Exception as e:
