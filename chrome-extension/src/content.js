@@ -1,16 +1,17 @@
 // ダミーデータのインポート（開発用）
 let dummyData = null;
+// 注: コンテンツスクリプトではimportScriptsは使用できません
+// 代わりにダミーデータを直接定義するか、バックグラウンドスクリプトから取得する必要があります
 try {
-  // 開発環境でのみ利用可能
-  if (typeof importScripts === 'function') {
-    importScripts('dummy-data.js');
-    dummyData = {
-      dummyHighlights,
-      simulateHighlightCollection
-    };
-  }
+  // 開発モードの場合、バックグラウンドスクリプトからダミーデータを取得
+  chrome.runtime.sendMessage({ action: 'getDummyData' }, function(response) {
+    if (response && response.success) {
+      dummyData = response.data;
+      console.log('Booklight AI: バックグラウンドスクリプトからダミーデータを取得しました');
+    }
+  });
 } catch (e) {
-  console.log('Booklight AI: ダミーデータのインポートに失敗しました（本番環境では正常）', e);
+  console.log('Booklight AI: ダミーデータの取得に失敗しました', e);
 }
 
 // Kindle Web Readerからハイライトを収集する関数

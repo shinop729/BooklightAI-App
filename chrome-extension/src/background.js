@@ -276,6 +276,34 @@ chrome.runtime.onInstalled.addListener(function(details) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Booklight AI: バックグラウンドスクリプトがメッセージを受信しました', request);
   
+  // ダミーデータの提供（コンテンツスクリプト用）
+  if (request.action === 'getDummyData') {
+    if (dummyData) {
+      sendResponse({
+        success: true,
+        data: {
+          dummyHighlights: dummyData.simulateApiResponse([]).dummyHighlights || [],
+          simulateHighlightCollection: function() {
+            return {
+              success: true,
+              data: {
+                book_title: "人工知能と社会の未来",
+                author: "山田太郎",
+                highlights: dummyData.simulateApiResponse([]).dummyHighlights || []
+              }
+            };
+          }
+        }
+      });
+    } else {
+      sendResponse({
+        success: false,
+        message: 'ダミーデータが利用できません'
+      });
+    }
+    return true;
+  }
+  
   if (request.action === 'sendHighlights') {
     // オフラインの場合はキャッシュに保存
     if (isOffline()) {
