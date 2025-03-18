@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kindle Web Reader シミュレーション</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f7f7f7;
+    }
+    .kindle-reader-container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .reader-header {
+      margin-bottom: 20px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    .reader-title {
+      font-size: 24px;
+      margin: 0 0 5px 0;
+    }
+    .reader-author {
+      font-size: 16px;
+      color: #666;
+      margin: 0;
+    }
+    .kp-notebook-highlight {
+      margin-bottom: 15px;
+      padding: 10px;
+      background-color: #ffffd9;
+      border-left: 3px solid #ffcc00;
+    }
+    .kp-notebook-highlight-text {
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .kp-notebook-highlight-location {
+      font-size: 12px;
+      color: #999;
+      margin-top: 5px;
+      text-align: right;
+    }
+    .test-controls {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #e9f7fe;
+      border-radius: 5px;
+    }
+    button {
+      padding: 8px 15px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    button:hover {
+      background-color: #3367d6;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+  </style>
+</head>
+<body>
+  <h1>Booklight AI テストページ</h1>
+  <p>このページはKindle Web Readerをシミュレートし、Chromeエクステンションのテストに使用します。</p>
+  
+  <div class="kindle-reader-container">
+    <div class="reader-header">
+      <h1 class="reader-title">人工知能と社会の未来</h1>
+      <h2 class="reader-author">山田太郎</h2>
+    </div>
+    <div class="reader-content">
+      <div class="kp-notebook-highlight" data-location="位置No. 142-143">
+        <div class="kp-notebook-highlight-text">人工知能は単なるツールではなく、社会を根本から変革する可能性を秘めている。</div>
+        <div class="kp-notebook-highlight-location">位置No. 142-143</div>
+      </div>
+      <div class="kp-notebook-highlight" data-location="位置No. 156-157">
+        <div class="kp-notebook-highlight-text">AIの発展には倫理的な議論が不可欠であり、技術開発と並行して社会的合意形成を進める必要がある。</div>
+        <div class="kp-notebook-highlight-location">位置No. 156-157</div>
+      </div>
+      <div class="kp-notebook-highlight" data-location="位置No. 201-202">
+        <div class="kp-notebook-highlight-text">データの偏りがAIの判断にバイアスをもたらす可能性は、最も重要な技術的・社会的課題の一つである。</div>
+        <div class="kp-notebook-highlight-location">位置No. 201-202</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="test-controls">
+    <h3>テスト操作</h3>
+    <button id="addHighlightBtn">ハイライトを追加</button>
+    <button id="changeBookBtn">書籍を変更</button>
+    <div id="status" class="status"></div>
+  </div>
+  
+  <script>
+    // テスト用の操作
+    document.getElementById('addHighlightBtn').addEventListener('click', function() {
+      const newHighlight = document.createElement('div');
+      newHighlight.className = 'kp-notebook-highlight';
+      newHighlight.setAttribute('data-location', '位置No. 250-251');
+      
+      newHighlight.innerHTML = `
+        <div class="kp-notebook-highlight-text">AIの進化は人間の知性の拡張として捉えるべきであり、対立構造ではなく共進化の関係として発展させることが重要である。</div>
+        <div class="kp-notebook-highlight-location">位置No. 250-251</div>
+      `;
+      
+      document.querySelector('.reader-content').appendChild(newHighlight);
+      
+      showStatus('success', '新しいハイライトを追加しました');
+    });
+    
+    document.getElementById('changeBookBtn').addEventListener('click', function() {
+      document.querySelector('.reader-title').textContent = '効率的な学習法';
+      document.querySelector('.reader-author').textContent = '佐藤花子';
+      
+      // ハイライトを変更
+      const highlights = document.querySelectorAll('.kp-notebook-highlight');
+      highlights.forEach(highlight => highlight.remove());
+      
+      const newHighlights = [
+        {
+          text: 'アクティブラーニングは単に「活動的な学習」ではなく、学習者が能動的に考え、知識を構築するプロセスである。',
+          location: '位置No. 78-79'
+        },
+        {
+          text: '記憶の定着には、間隔をあけた復習が効果的である。一度に長時間学習するよりも、短時間の学習を分散させる方が記憶に残りやすい。',
+          location: '位置No. 103-104'
+        }
+      ];
+      
+      newHighlights.forEach(h => {
+        const newHighlight = document.createElement('div');
+        newHighlight.className = 'kp-notebook-highlight';
+        newHighlight.setAttribute('data-location', h.location);
+        
+        newHighlight.innerHTML = `
+          <div class="kp-notebook-highlight-text">${h.text}</div>
+          <div class="kp-notebook-highlight-location">${h.location}</div>
+        `;
+        
+        document.querySelector('.reader-content').appendChild(newHighlight);
+      });
+      
+      showStatus('success', '書籍とハイライトを変更しました');
+    });
+    
+    function showStatus(type, message) {
+      const statusDiv = document.getElementById('status');
+      statusDiv.className = 'status ' + type;
+      statusDiv.textContent = message;
+    }
+  </script>
+</body>
+</html>
