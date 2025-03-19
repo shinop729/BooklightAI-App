@@ -14,6 +14,8 @@ import json
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.config import settings
+from app.exceptions import setup_exception_handlers, AuthenticationError, ConfigurationError
 from app.auth import (
     User, authenticate_user, create_access_token, 
     get_current_active_user, authenticate_with_google,
@@ -25,11 +27,21 @@ from database.base import engine, Base
 
 # ロギング設定
 logging.basicConfig(
-    level=logging.INFO if os.getenv("ENVIRONMENT") == "production" else logging.DEBUG,
+    level=getattr(logging, settings.LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger("booklight-api")
+
+# Heroku環境を検出した場合の追加設定
+if os.getenv("DYNO"):
+    # 特定のモジュールのログレベルを調整（必要に応じて）
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
+    
+    logger.info(f"Heroku環境で起動しました: {settings.HEROKU_APP_NAME or 'unknown'}")
+else:
+    logger.info("開発環境で起動しました")
 
 # 環境検出
 def is_development_mode():
@@ -70,22 +82,19 @@ Base.metadata.create_all(bind=engine)
 
 # アプリケーションの初期化
 app = FastAPI(
-    title="Booklight AI API",
+    title=settings.APP_NAME,
     description="Kindle ハイライト管理のためのAPI",
-    version="0.1.0"
+    version=settings.VERSION
 )
+
+# 例外ハンドラの設定
+setup_exception_handlers(app)
 
 # セッションミドルウェアの追加
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("JWT_SECRET_KEY", "fallback-secret-key"))
 
 # CORS設定の改善
-allowed_origins = [
-    "https://your-frontend-url.herokuapp.com",  # フロントエンドのURLに置き換え
-    "http://localhost:8501",  # ローカル開発環境
-]
-
-if os.getenv("FRONTEND_URL"):
-    allowed_origins.append(os.getenv("FRONTEND_URL"))
+allowed_origins = settings.CORS_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,
@@ -104,27 +113,27 @@ async def debug_info(authorized: bool = Depends(verify_debug_access)):
     本番環境では X-Debug-API-Key ヘッダーが必要です
     """
     # 環境検出
-    is_prod = os.getenv("ENVIRONMENT") == "production"
+    is_prod = settings.ENVIRONMENT == "production"
     is_heroku = os.getenv("DYNO") is not None
     
     # 基本情報を収集
     info = {
         "environment": {
-            "type": os.getenv("ENVIRONMENT", "development"),
+            "type": str(settings.ENVIRONMENT),
             "is_heroku": is_heroku,
             "port": os.getenv("PORT"),
-            "app_name": os.getenv("HEROKU_APP_NAME"),
+            "app_name": settings.HEROKU_APP_NAME,
             "dyno": os.getenv("DYNO"),
         },
         "auth_config": {
-            "google_client_id_configured": bool(os.getenv("GOOGLE_CLIENT_ID")),
-            "google_client_secret_configured": bool(os.getenv("GOOGLE_CLIENT_SECRET")),
-            "redirect_uri": os.getenv("REDIRECT_URI"),
-            "frontend_url": os.getenv("FRONTEND_URL"),
+            "google_client_id_configured": bool(settings.GOOGLE_CLIENT_ID),
+            "google_client_secret_configured": bool(settings.GOOGLE_CLIENT_SECRET),
+            "redirect_uri": settings.REDIRECT_URI,
+            "frontend_url": settings.FRONTEND_URL,
         },
         "database": {
-            "url_configured": bool(os.getenv("DATABASE_URL")),
-            "type": "PostgreSQL" if "postgresql" in os.getenv("DATABASE_URL", "") else "SQLite",
+            "url_configured": bool(settings.DATABASE_URL),
+            "type": "PostgreSQL" if "postgresql" in settings.DATABASE_URL else "SQLite",
         },
         "timestamp": datetime.utcnow().isoformat(),
     }
