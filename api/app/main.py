@@ -21,6 +21,7 @@ from app.auth import (
     get_current_active_user, authenticate_with_google,
     ACCESS_TOKEN_EXPIRE_MINUTES, oauth
 )
+from app.url_utils import determine_frontend_url
 from database.base import get_db
 import database.models as models
 from database.base import engine, Base
@@ -192,6 +193,73 @@ async def root():
     </body>
     </html>
     """
+
+# Google OAuth認証関連のエンドポイント
+@app.get("/auth/google")
+async def login_via_google(request: Request):
+    """Google OAuth認証のリダイレクトエンドポイント"""
+    redirect_uri = request.url_for("auth_callback")
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get("/auth/callback")
+async def auth_callback(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Google OAuth認証のコールバックエンドポイント（DB版）"""
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        user_info = await oauth.google.parse_id_token(request, token)
+        
+        # ユーザー情報の整形
+        user_data = {
+            "username": user_info.get("email").split('@')[0],
+            "email": user_info.get("email"),
+            "full_name": user_info.get("name"),
+            "google_id": user_info.get("sub"),
+            "picture": user_info.get("picture"),
+            "disabled": False
+        }
+        
+        # データベースにユーザー情報を保存
+        db_user = db.query(models.User).filter(models.User.google_id == user_data["google_id"]).first()
+        if not db_user:
+            db_user = models.User(
+                username=user_data["username"],
+                email=user_data["email"],
+                full_name=user_data["full_name"],
+                picture=user_data["picture"],
+                google_id=user_data["google_id"],
+                disabled=0
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+        
+        # JWTトークンの生成
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user_data["username"], "email": user_data["email"]},
+            expires_delta=access_token_expires
+        )
+        
+        # フロントエンドURLの動的検出
+        frontend_url = await determine_frontend_url(request)
+        
+        # リダイレクトURLの構築
+        redirect_url = f"{frontend_url}?token={access_token}&user={user_data['username']}"
+        logger.info(f"認証後リダイレクト: {redirect_url}")
+        
+        return RedirectResponse(url=redirect_url)
+    
+    except Exception as e:
+        logger.error(f"認証エラー: {e}")
+        
+        # エラー時もフロントエンドURLを検出
+        frontend_url = await determine_frontend_url(request)
+        error_redirect = f"{frontend_url}?error={str(e)}"
+        
+        return RedirectResponse(url=error_redirect)
 
 # 残りのコードは以前のmain.pyと同じ
 # （以前のコードをそのままコピー）
