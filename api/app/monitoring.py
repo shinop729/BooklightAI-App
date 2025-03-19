@@ -1,7 +1,7 @@
 import os
 import sentry_sdk
 import logging
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, set_tag
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 # FastAPIIntegrationが存在しない場合のフォールバック
@@ -52,14 +52,12 @@ def init_sentry(settings):
             traces_sample_rate=0.2,  # 20%のトランザクションをトレース
             
             # エラーサンプリング
-            sample_rate=1.0,  # 本番環境では全てのエラーをキャプチャ
-            
-            # カスタムタグの追加
-            default_tags={
-                "app_name": settings.APP_NAME,
-                "environment": str(settings.ENVIRONMENT)
-            }
+            sample_rate=1.0  # 本番環境では全てのエラーをキャプチャ
         )
+
+        # デフォルトタグを設定
+        set_tag("app_name", settings.APP_NAME)
+        set_tag("environment", str(settings.ENVIRONMENT))
         
         # ユーザーコンテキストの設定関数
         def set_user_context(user_id=None, email=None):
