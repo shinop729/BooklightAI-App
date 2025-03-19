@@ -25,7 +25,21 @@ def setup_app():
     
     st.set_page_config(page_title="Booklight AI", layout="wide")
     
-    st.sidebar.image("images/booklight_ai_banner.png", width=300)
+    import base64
+    from pathlib import Path
+    
+    def get_base64_of_bin_file(bin_file):
+        with open(bin_file, 'rb') as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    
+    banner_path = Path("images/booklight_ai_banner.png")
+    if banner_path.exists():
+        banner_base64 = get_base64_of_bin_file(banner_path)
+        st.sidebar.markdown(
+            f'<img src="data:image/png;base64,{banner_base64}" width="300">',
+            unsafe_allow_html=True
+        )
     st.sidebar.title("Booklight AI")
     st.sidebar.markdown("📚 あなたの読書をAIが照らす")
     st.sidebar.markdown("---")
