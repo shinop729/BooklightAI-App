@@ -22,9 +22,13 @@ from app.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES, oauth
 )
 from app.url_utils import determine_frontend_url
+from app.monitoring import init_sentry, track_transaction, log_performance_metric
 from database.base import get_db
 import database.models as models
 from database.base import engine, Base
+
+# Sentryの初期化
+set_user_context = init_sentry(settings)
 
 # ロギング設定
 logging.basicConfig(
@@ -196,12 +200,14 @@ async def root():
 
 # Google OAuth認証関連のエンドポイント
 @app.get("/auth/google")
+@track_transaction("google_oauth_redirect")
 async def login_via_google(request: Request):
     """Google OAuth認証のリダイレクトエンドポイント"""
     redirect_uri = request.url_for("auth_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @app.get("/auth/callback")
+@track_transaction("google_oauth_callback")
 async def auth_callback(
     request: Request,
     db: Session = Depends(get_db)
@@ -250,10 +256,19 @@ async def auth_callback(
         redirect_url = f"{frontend_url}?token={access_token}&user={user_data['username']}"
         logger.info(f"認証後リダイレクト: {redirect_url}")
         
+        # ユーザーコンテキストの設定
+        set_user_context(user_id=user_data["username"], email=user_data["email"])
+        
+        # パフォーマンスメトリクスの記録
+        log_performance_metric("auth_success_rate", 1.0)
+        
         return RedirectResponse(url=redirect_url)
     
     except Exception as e:
         logger.error(f"認証エラー: {e}")
+        
+        # パフォーマンスメトリクスの記録
+        log_performance_metric("auth_success_rate", 0.0)
         
         # エラー時もフロントエンドURLを検出
         frontend_url = await determine_frontend_url(request)

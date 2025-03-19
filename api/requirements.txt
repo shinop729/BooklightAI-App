@@ -13,3 +13,4 @@ itsdangerous==2.1.2
 gunicorn==21.2.0
 sqlalchemy==2.0.25
 alembic==1.13.1
+sentry-sdk[fastapi]==1.45.0
