@@ -2,13 +2,35 @@
 (function() {
   console.log('Booklight AI: 認証コールバックスクリプトが読み込まれました');
   
-  // URLからトークンとユーザー情報を取得
+  // URLとクッキーからトークンとユーザー情報を取得
   function getTokenFromUrl() {
     try {
       const url = new URL(window.location.href);
-      const token = url.searchParams.get('token');
+      let token = url.searchParams.get('token');
       const user = url.searchParams.get('user');
       const error = url.searchParams.get('error');
+      
+      // クッキーからトークンを取得（可能な場合）
+      if (!token) {
+        const getCookie = (name) => {
+          const value = `; ${document.cookie}`;
+          const parts = value.split(`; ${name}=`);
+          if (parts.length === 2) return parts.pop().split(';').shift();
+          return null;
+        };
+        
+        const cookieToken = getCookie('auth_token');
+        if (cookieToken) {
+          console.log('Booklight AI: クッキーからトークンを取得しました');
+          token = cookieToken;
+        }
+      }
+      
+      console.log('Booklight AI: 認証情報', { 
+        user: user || 'なし', 
+        token: token ? '存在します' : 'なし',
+        error: error || 'なし' 
+      });
       
       return { token, user, error };
     } catch (error) {
@@ -21,6 +43,10 @@
   function processAuthCallback() {
     try {
       const { token, user, error } = getTokenFromUrl();
+      
+      // URLパラメータの詳細をログに出力
+      console.log('Booklight AI: URL', window.location.href);
+      console.log('Booklight AI: URLパラメータ', new URL(window.location.href).searchParams.toString());
       
       if (error) {
         console.error('Booklight AI: 認証エラー', error);

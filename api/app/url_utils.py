@@ -54,6 +54,15 @@ async def determine_frontend_url(request: Request) -> str:
     Returns:
         str: 検出されたフロントエンドURL
     """
+    # Herokuの環境変数を確認
+    if os.getenv("DYNO"):
+        # Herokuのアプリ名を直接使用
+        app_name = os.getenv("HEROKU_APP_NAME")
+        if app_name:
+            heroku_url = f"https://{app_name}.herokuapp.com"
+            logger.info(f"フロントエンドURL（Herokuアプリ名から）: {heroku_url}")
+            return sanitize_url(heroku_url)
+    
     # 戦略1: 環境変数からの設定値
     frontend_url = os.getenv('FRONTEND_URL')
     if frontend_url and validate_url(frontend_url):
@@ -96,11 +105,11 @@ async def determine_frontend_url(request: Request) -> str:
     except Exception as e:
         logger.warning(f"リクエストからのURL検出に失敗: {e}")
     
-    # 戦略5: Herokuアプリ名からの構築
+    # 戦略5: Herokuアプリ名からの構築（バックアップとして残す）
     app_name = os.getenv("HEROKU_APP_NAME")
     if app_name:
         heroku_url = f"https://{app_name}.herokuapp.com"
-        logger.info(f"フロントエンドURL（Herokuアプリ名から）: {heroku_url}")
+        logger.info(f"フロントエンドURL（Herokuアプリ名から - バックアップ）: {heroku_url}")
         return sanitize_url(heroku_url)
     
     # 戦略6: ホスト名の自動検出

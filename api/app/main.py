@@ -210,6 +210,7 @@ async def login_via_google(request: Request):
 @track_transaction("google_oauth_callback")
 async def auth_callback(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """Google OAuth認証のコールバックエンドポイント（DB版）"""
@@ -251,8 +252,14 @@ async def auth_callback(
         
         # フロントエンドURLの動的検出
         frontend_url = await determine_frontend_url(request)
+        logger.info(f"検出されたフロントエンドURL: {frontend_url}")
         
-        # リダイレクトURLの構築
+        # セキュアなクッキーにトークンを設定
+        # Heroku環境ではHTTPSが強制されるため、secure=Trueを設定
+        is_secure = os.getenv("DYNO") is not None  # Heroku環境ではTrue
+        
+        # リダイレクトURLの構築（トークンはURLパラメータとクッキーの両方に設定）
+        # 既存の実装との互換性のために、URLパラメータも残す
         redirect_url = f"{frontend_url}?token={access_token}&user={user_data['username']}"
         logger.info(f"認証後リダイレクト: {redirect_url}")
         
@@ -262,7 +269,21 @@ async def auth_callback(
         # パフォーマンスメトリクスの記録
         log_performance_metric("auth_success_rate", 1.0)
         
-        return RedirectResponse(url=redirect_url)
+        # リダイレクトレスポンスを作成
+        redirect_response = RedirectResponse(url=redirect_url)
+        
+        # クッキーを設定
+        redirect_response.set_cookie(
+            key="auth_token",
+            value=access_token,
+            httponly=True,
+            secure=is_secure,
+            samesite="lax",  # クロスサイトリクエストを許可するためlaxに設定
+            max_age=1800,  # 30分
+            path="/"
+        )
+        
+        return redirect_response
     
     except Exception as e:
         logger.error(f"認証エラー: {e}")
@@ -273,8 +294,87 @@ async def auth_callback(
         # エラー時もフロントエンドURLを検出
         frontend_url = await determine_frontend_url(request)
         error_redirect = f"{frontend_url}?error={str(e)}"
+        logger.error(f"エラー時リダイレクト: {error_redirect}")
         
         return RedirectResponse(url=error_redirect)
+
+# デバッグ用の認証情報エンドポイント
+@app.get("/debug-auth")
+async def debug_auth(request: Request):
+    """認証デバッグ用エンドポイント"""
+    frontend_url = await determine_frontend_url(request)
+    
+    return {
+        "frontend_url": frontend_url,
+        "request_host": str(request.base_url),
+        "headers": {k: v for k, v in request.headers.items()},
+        "app_name": os.getenv("HEROKU_APP_NAME", "未設定"),
+        "is_heroku": os.getenv("DYNO") is not None,
+        "redirect_uri": os.getenv("REDIRECT_URI", "未設定"),
+        "frontend_url_env": os.getenv("FRONTEND_URL", "未設定")
+    }
+
+# 認証成功時のフォールバックページ
+@app.get("/auth/success", response_class=HTMLResponse)
+async def auth_success(token: str = None, user: str = None):
+    """認証成功時のフォールバックページ"""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Booklight AI - 認証成功</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+            h1 {{ color: #2a75bb; }}
+            .card {{ background-color: #f5f5f5; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
+            .success {{ color: #5cb85c; }}
+            button {{ background-color: #5cb85c; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
+        </style>
+        <script>
+            // トークンとユーザー情報をChromeに送信
+            function sendAuthInfoToExtension() {{
+                const token = "{token}";
+                const user = "{user}";
+                if (token && user && chrome && chrome.runtime) {{
+                    try {{
+                        chrome.runtime.sendMessage({{
+                            action: 'google_auth_success',
+                            token: token,
+                            user: user
+                        }});
+                        console.log('認証情報を拡張機能に送信しました');
+                    }} catch (e) {{
+                        console.error('拡張機能への送信に失敗しました:', e);
+                    }}
+                }}
+                // 5秒後に自動的にウィンドウを閉じる
+                setTimeout(() => {{
+                    window.close();
+                }}, 5000);
+            }}
+            
+            // ページ読み込み時に実行
+            window.onload = function() {{
+                try {{
+                    sendAuthInfoToExtension();
+                }} catch (e) {{
+                    console.error('認証処理中にエラーが発生しました:', e);
+                }}
+            }};
+        </script>
+    </head>
+    <body>
+        <h1>Booklight AI</h1>
+        <div class="card">
+            <h2 class="success">認証成功</h2>
+            <p>ようこそ、{user or "ユーザー"}さん！</p>
+            <p>このウィンドウは自動的に閉じられます。</p>
+            <p>自動的に閉じられない場合は、下のボタンをクリックしてください。</p>
+            <button onclick="window.close()">ウィンドウを閉じる</button>
+        </div>
+    </body>
+    </html>
+    """
 
 # 残りのコードは以前のmain.pyと同じ
 # （以前のコードをそのままコピー）

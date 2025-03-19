@@ -182,12 +182,19 @@ def handle_auth_flow():
                 # ユーザーデータを保存
                 user_id = save_user_data(user_info)
                 
+                # セッション処理のログ
+                print(f"認証成功: ユーザーID={user_id}, セッション設定完了")
+                print(f"セッション状態: {list(st.session_state.keys())}")
+                print(f"ユーザー情報: {user_info.get('name')} ({user_info.get('email')})")
+                
                 # URLパラメータをクリア
                 st.query_params.clear()
                 
                 return True
         except Exception as e:
             import traceback
+            print(f"認証エラー詳細: {str(e)}")
+            print(traceback.format_exc())
             st.error(f"認証エラー: {str(e)}")
             st.error(f"詳細エラー: {traceback.format_exc()}")
     
