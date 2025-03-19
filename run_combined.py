@@ -10,9 +10,9 @@ def run_fastapi():
     # Herokuの場合はPORT環境変数を使用
     is_heroku = os.getenv("DYNO") is not None
     if is_heroku:
-        # Herokuでは内部的にAPI用のポートを設定
-        api_port = os.environ.get("API_PORT", "8000")
-        print(f"Heroku環境でFastAPIを起動: ポート {api_port}")
+        # Herokuでは環境変数PORTを使用する必要がある
+        port = os.environ.get("PORT", "8000")
+        print(f"Heroku環境でFastAPIを起動: ポート {port}")
         
         # デバッグ情報
         print(f"環境変数:")
@@ -24,11 +24,11 @@ def run_fastapi():
         print(f"  REDIRECT_URI: {os.getenv('REDIRECT_URI')}")
     else:
         # ローカル環境ではデフォルトポートを使用
-        api_port = os.environ.get("API_PORT", "8000")
-        print(f"ローカル環境でFastAPIを起動: ポート {api_port}")
+        port = os.environ.get("API_PORT", "8000")
+        print(f"ローカル環境でFastAPIを起動: ポート {port}")
     
     # FastAPIを起動（--root-pathを追加してルーティングを設定）
-    subprocess.run(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", api_port])
+    subprocess.run(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", port])
 
 def run_streamlit():
     time.sleep(5)  # FastAPIの起動を待つ
@@ -67,10 +67,17 @@ if __name__ == "__main__":
     # 現在のディレクトリを保存
     root_dir = os.getcwd()
     
-    # FastAPIをバックグラウンドで実行
-    fastapi_thread = threading.Thread(target=run_fastapi)
-    fastapi_thread.daemon = True
-    fastapi_thread.start()
-    
-    # Streamlitをメインプロセスとして実行
-    run_streamlit()
+    # Heroku環境ではFastAPIのみを実行
+    is_heroku = os.getenv("DYNO") is not None
+    if is_heroku:
+        # FastAPIをメインプロセスとして実行
+        run_fastapi()
+    else:
+        # 開発環境では両方実行
+        # FastAPIをバックグラウンドで実行
+        fastapi_thread = threading.Thread(target=run_fastapi)
+        fastapi_thread.daemon = True
+        fastapi_thread.start()
+        
+        # Streamlitをメインプロセスとして実行
+        run_streamlit()
