@@ -43,15 +43,15 @@ def run_streamlit():
     for file in os.listdir(current_dir):
         print(f" - {file}")
     
-    # Herokuの場合はPORT環境変数を使用
+    # ポート設定
     is_heroku = os.getenv("DYNO") is not None
     if is_heroku:
-        # Herokuでは環境変数PORTを使用する必要がある
-        port = os.environ.get("PORT", "8501")
+        # Heroku環境では、FastAPIと同じポートを使用する
+        port = os.environ.get("PORT", "8000")
         print(f"Heroku環境でStreamlitを起動: ポート {port}")
     else:
         # ローカル環境ではデフォルトポートを使用
-        port = os.environ.get("PORT", "8501")
+        port = "8501"
         print(f"ローカル環境でStreamlitを起動: ポート {port}")
     
     # FRONTEND_URL環境変数を設定（認証コールバック用）
@@ -67,11 +67,16 @@ if __name__ == "__main__":
     # 現在のディレクトリを保存
     root_dir = os.getcwd()
     
-    # Heroku環境ではFastAPIのみを実行
     is_heroku = os.getenv("DYNO") is not None
     if is_heroku:
-        # FastAPIをメインプロセスとして実行
-        run_fastapi()
+        # Heroku環境でも両方実行
+        # FastAPIをバックグラウンドで実行
+        fastapi_thread = threading.Thread(target=run_fastapi)
+        fastapi_thread.daemon = True
+        fastapi_thread.start()
+        
+        # Streamlitをメインプロセスとして実行
+        run_streamlit()
     else:
         # 開発環境では両方実行
         # FastAPIをバックグラウンドで実行
