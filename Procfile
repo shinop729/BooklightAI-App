@@ -1,2 +1,2 @@
-release: python -m alembic.config -c api/alembic.ini upgrade head
+release: cd api && alembic upgrade head
 web: python run_combined.py
