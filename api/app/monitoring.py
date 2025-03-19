@@ -1,9 +1,20 @@
 import os
 import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastAPIIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlAlchemyIntegration
-from sentry_sdk.integrations.logging import LoggingIntegration
 import logging
+from sentry_sdk import capture_exception
+from sentry_sdk.integrations.logging import LoggingIntegration
+
+# FastAPIIntegrationが存在しない場合のフォールバック
+try:
+    from sentry_sdk.integrations.fastapi import FastAPIIntegration
+except ImportError:
+    FastAPIIntegration = None
+
+# SQLAlchemyIntegrationが存在しない場合のフォールバック
+try:
+    from sentry_sdk.integrations.sqlalchemy import SqlAlchemyIntegration
+except ImportError:
+    SqlAlchemyIntegration = None
 
 def init_sentry(settings):
     """
@@ -14,20 +25,28 @@ def init_sentry(settings):
     """
     # Sentryの初期化条件
     if settings.ENVIRONMENT == "production" and os.getenv("SENTRY_DSN"):
+        # 利用可能なインテグレーションを追加
+        integrations = [
+            LoggingIntegration(
+                level=logging.INFO,     # 通知レベル
+                event_level=logging.ERROR  # エラーレベル
+            )
+        ]
+        
+        # 利用可能な場合のみインテグレーションを追加
+        if FastAPIIntegration is not None:
+            integrations.append(FastAPIIntegration())
+            
+        if SqlAlchemyIntegration is not None:
+            integrations.append(SqlAlchemyIntegration())
+        
         sentry_sdk.init(
             dsn=os.getenv("SENTRY_DSN"),
             environment=str(settings.ENVIRONMENT),
             release=settings.VERSION,
             
             # インテグレーションの設定
-            integrations=[
-                FastAPIIntegration(),
-                SqlAlchemyIntegration(),
-                LoggingIntegration(
-                    level=logging.INFO,     # 通知レベル
-                    event_level=logging.ERROR  # エラーレベル
-                )
-            ],
+            integrations=integrations,
             
             # パフォーマンストラッキングの有効化
             traces_sample_rate=0.2,  # 20%のトランザクションをトレース
@@ -85,7 +104,11 @@ def track_transaction(transaction_name):
     """
     def decorator(func):
         async def wrapper(*args, **kwargs):
-            with sentry_sdk.start_transaction(name=transaction_name):
+            try:
+                with sentry_sdk.start_transaction(name=transaction_name):
+                    return await func(*args, **kwargs)
+            except Exception as e:
+                # エラーが発生した場合は通常通り処理を続行
                 return await func(*args, **kwargs)
         return wrapper
     return decorator
