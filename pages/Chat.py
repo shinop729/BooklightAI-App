@@ -142,7 +142,7 @@ local_css("style.css")
 add_chat_css()
 
 # サイドバー設定
-st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
+st.sidebar.image("images/booklight_ai_banner.png")
 st.sidebar.title("Booklight AI")
 st.sidebar.markdown("📚 あなたの読書をAIが照らす")
 st.sidebar.markdown("---")
