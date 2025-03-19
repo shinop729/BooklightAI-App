@@ -175,22 +175,39 @@ def proxy_api_request():
         try:
             # FastAPIサーバーのURLを構築
             api_path = request_path[4:]  # /api/ を除去
-            api_url = f"http://localhost:8000{api_path}"
             
-            # Heroku環境ではポート番号を環境変数から取得
-            if os.getenv("DYNO"):
-                api_port = os.environ.get("API_PORT", "8000")
-                api_url = f"http://localhost:{api_port}{api_path}"
+            # Heroku環境ではアプリのURLを使用
+            is_heroku = os.getenv("DYNO") is not None
+            if is_heroku:
+                app_name = os.getenv("HEROKU_APP_NAME", "")
+                if app_name:
+                    # 同じHerokuアプリ内のAPIにリクエスト
+                    api_url = f"https://{app_name}.herokuapp.com/api{api_path}"
+                else:
+                    # アプリ名が不明な場合はAPI_URLを使用
+                    api_url = os.getenv("API_URL", "")
+                    if api_url:
+                        api_url = f"{api_url}/api{api_path}"
+                    else:
+                        # フォールバックとしてローカルホストを使用
+                        api_port = os.environ.get("API_PORT", "8000")
+                        api_url = f"http://localhost:{api_port}{api_path}"
+                
+                print(f"Heroku環境でのAPIリクエスト: {api_url}")
+            else:
+                # ローカル環境ではlocalhost:8000を使用
+                api_url = f"http://localhost:8000{api_path}"
             
             st.write(f"APIリクエスト: {api_url}")
             
             # リクエストをプロキシ
-            response = requests.get(api_url)
+            response = requests.get(api_url, timeout=10)
             
             # レスポンスを返す
             return response.json()
         except Exception as e:
             st.error(f"APIリクエストエラー: {e}")
+            print(f"APIリクエスト詳細エラー: {str(e)}")
             return {"error": str(e)}
     
     return None

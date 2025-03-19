@@ -27,7 +27,9 @@ if not REDIRECT_URI or 'localhost' in REDIRECT_URI:
     if is_heroku:
         app_name = os.getenv("HEROKU_APP_NAME", "")
         if app_name:
+            # Heroku環境では、Streamlitのルートパスをリダイレクトとして使用
             REDIRECT_URI = f"https://{app_name}.herokuapp.com/"
+            print(f"Heroku環境でのリダイレクトURI: {REDIRECT_URI}")
         else:
             # アプリ名が不明な場合はデフォルト値を使用
             REDIRECT_URI = "http://localhost:8501/"

@@ -11,7 +11,8 @@ def run_fastapi():
     is_heroku = os.getenv("DYNO") is not None
     if is_heroku:
         # Herokuでは環境変数PORTを使用する必要がある
-        port = os.environ.get("PORT", "8000")
+        # API_PORTが設定されていればそれを使用、なければPORTを使用
+        port = os.environ.get("API_PORT", os.environ.get("PORT", "8000"))
         print(f"Heroku環境でFastAPIを起動: ポート {port}")
         
         # デバッグ情報
@@ -22,13 +23,22 @@ def run_fastapi():
         print(f"  HEROKU_APP_NAME: {os.getenv('HEROKU_APP_NAME')}")
         print(f"  FRONTEND_URL: {os.getenv('FRONTEND_URL')}")
         print(f"  REDIRECT_URI: {os.getenv('REDIRECT_URI')}")
+        
+        # 追加のデバッグ情報
+        print(f"現在のディレクトリ: {os.getcwd()}")
+        print(f"ファイル一覧:")
+        for file in os.listdir():
+            print(f"  - {file}")
     else:
         # ローカル環境ではデフォルトポートを使用
         port = os.environ.get("API_PORT", "8000")
         print(f"ローカル環境でFastAPIを起動: ポート {port}")
     
     # FastAPIを起動（--root-pathを追加してルーティングを設定）
-    subprocess.run(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", port])
+    try:
+        subprocess.run(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", port])
+    except Exception as e:
+        print(f"FastAPI起動エラー: {e}")
 
 def run_streamlit():
     time.sleep(5)  # FastAPIの起動を待つ
@@ -46,22 +56,29 @@ def run_streamlit():
     # ポート設定
     is_heroku = os.getenv("DYNO") is not None
     if is_heroku:
-        # Heroku環境では、FastAPIと同じポートを使用する
+        # Heroku環境では、環境変数PORTを使用する必要がある
         port = os.environ.get("PORT", "8000")
         print(f"Heroku環境でStreamlitを起動: ポート {port}")
+        
+        # 環境変数の設定
+        app_name = os.getenv("HEROKU_APP_NAME", "")
+        if app_name:
+            # FRONTEND_URL環境変数を設定（認証コールバック用）
+            os.environ["FRONTEND_URL"] = f"https://{app_name}.herokuapp.com"
+            print(f"FRONTEND_URL設定: {os.environ['FRONTEND_URL']}")
+            
+            # REDIRECT_URI環境変数を設定（認証コールバック用）
+            os.environ["REDIRECT_URI"] = f"https://{app_name}.herokuapp.com/"
+            print(f"REDIRECT_URI設定: {os.environ['REDIRECT_URI']}")
     else:
         # ローカル環境ではデフォルトポートを使用
         port = "8501"
         print(f"ローカル環境でStreamlitを起動: ポート {port}")
     
-    # FRONTEND_URL環境変数を設定（認証コールバック用）
-    if is_heroku:
-        app_name = os.getenv("HEROKU_APP_NAME", "")
-        if app_name:
-            os.environ["FRONTEND_URL"] = f"https://{app_name}.herokuapp.com"
-            print(f"FRONTEND_URL設定: {os.environ['FRONTEND_URL']}")
-    
-    subprocess.run(["streamlit", "run", "Home.py", "--server.port", port, "--server.address", "0.0.0.0"])
+    try:
+        subprocess.run(["streamlit", "run", "Home.py", "--server.port", port, "--server.address", "0.0.0.0"])
+    except Exception as e:
+        print(f"Streamlit起動エラー: {e}")
 
 if __name__ == "__main__":
     # 現在のディレクトリを保存
