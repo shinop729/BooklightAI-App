@@ -2,7 +2,8 @@ import os
 from enum import Enum
 from functools import lru_cache
 from typing import List, Optional
-from pydantic import BaseSettings, Field, validator
+from pydantic import Field, validator
+from pydantic_settings import BaseSettings
 
 class EnvironmentType(str, Enum):
     """環境タイプの列挙型"""
