@@ -2,7 +2,7 @@ import os
 from enum import Enum
 from functools import lru_cache
 from typing import List, Optional
-from pydantic import Field, validator
+from pydantic import Field, validator, ConfigDict
 from pydantic_settings import BaseSettings
 
 class EnvironmentType(str, Enum):
@@ -121,11 +121,11 @@ class Settings(BaseSettings):
             "max_overflow": 10
         }
     
-    class Config:
-        """Pydanticの設定"""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True
+    )
 
 @lru_cache()
 def get_settings() -> Settings:
