@@ -56,8 +56,8 @@ async def determine_frontend_url(request: Request) -> str:
     """
     # Herokuの環境変数を確認
     if os.getenv("DYNO"):
-        # Herokuのアプリ名を直接使用
-        app_name = os.getenv("HEROKU_APP_NAME")
+        # Herokuのアプリ名を直接使用（APP_NAMEも確認）
+        app_name = os.getenv("APP_NAME") or os.getenv("HEROKU_APP_NAME")
         if app_name:
             heroku_url = f"https://{app_name}.herokuapp.com"
             logger.info(f"フロントエンドURL（Herokuアプリ名から）: {heroku_url}")
