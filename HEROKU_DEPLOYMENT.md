@@ -1,153 +1,85 @@
-# Herokuデプロイ手順
-
-このドキュメントでは、Booklight AIアプリケーションをHerokuにデプロイする手順を説明します。
+# Herokuデプロイメント手順
 
 ## 前提条件
+- Herokuアカウントの作成
+- Heroku CLIのインストール
+- Gitのインストール
 
-- Herokuアカウント
-- Heroku CLI
-- Git
-- PostgreSQLアドオン（Heroku上で使用）
+## デプロイ手順
 
-## 1. Herokuアプリケーションの作成
-
+1. Herokuアプリの作成
 ```bash
-# Heroku CLIにログイン
-heroku login
-
-# アプリケーションを作成
-heroku create booklight-ai
-
-# PostgreSQLアドオンを追加
-heroku addons:create heroku-postgresql:hobby-dev -a booklight-ai
+heroku create booklight-ai-api
 ```
 
-## 2. 環境変数の設定
-
+2. ビルドパックの設定
 ```bash
-# JWT認証用のシークレットキー
-heroku config:set JWT_SECRET_KEY="your-secret-key" -a booklight-ai
-
-# Google OAuth認証用の設定
-heroku config:set GOOGLE_CLIENT_ID="your-google-client-id" -a booklight-ai
-heroku config:set GOOGLE_CLIENT_SECRET="your-google-client-secret" -a booklight-ai
-heroku config:set REDIRECT_URI="https://booklight-ai.herokuapp.com/auth/callback" -a booklight-ai
-
-# フロントエンドURL
-heroku config:set FRONTEND_URL="https://booklight-ai.herokuapp.com" -a booklight-ai
-
-# デバッグモード（本番環境ではfalse）
-heroku config:set DEBUG="false" -a booklight-ai
+heroku buildpacks:set heroku/python
 ```
 
-## 3. データベースマイグレーション
-
+3. 環境変数の設定
 ```bash
-# Alembicマイグレーションの実行
-heroku run alembic upgrade head -a booklight-ai
+# Google OAuth設定
+heroku config:set GOOGLE_CLIENT_ID=your_google_client_id
+heroku config:set GOOGLE_CLIENT_SECRET=your_google_client_secret
 
-# データ移行スクリプトの実行
-heroku run python api/migrate_data.py -a booklight-ai
+# JWT設定
+heroku config:set JWT_SECRET_KEY=$(openssl rand -hex 32)
+heroku config:set JWT_ALGORITHM=HS256
+heroku config:set ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# フロントエンド設定
+heroku config:set FRONTEND_URL=https://booklight-ai-app.herokuapp.com
+heroku config:set REDIRECT_URI=https://booklight-ai-api.herokuapp.com/auth/callback
+
+# デバッグ設定
+heroku config:set ENVIRONMENT=production
+heroku config:set DEBUG=false
+heroku config:set LOG_LEVEL=WARNING
+heroku config:set DEBUG_API_KEY=$(openssl rand -hex 16)
+
+# データベース設定
+heroku addons:create heroku-postgresql:hobby-basic
 ```
 
-## 4. デプロイ
-
+4. Herokuにデプロイ
 ```bash
-# Gitリポジトリの初期化（既に初期化されている場合は不要）
+# プロジェクトをGitリポジトリに追加（まだ行っていない場合）
 git init
 git add .
-git commit -m "Initial commit"
+git commit -m "Initial Heroku deployment setup"
 
-# Herokuリモートの追加
-heroku git:remote -a booklight-ai
+# Herokuリモートを追加
+heroku git:remote -a booklight-ai-api
 
 # デプロイ
 git push heroku main
 ```
 
-## 5. アプリケーションの起動
-
+5. データベースマイグレーション
 ```bash
-# アプリケーションを起動
-heroku ps:scale web=1 -a booklight-ai
-
-# アプリケーションを開く
-heroku open -a booklight-ai
+heroku run -a booklight-ai-api cd api && alembic upgrade head
 ```
 
-## 6. ログの確認
-
+6. アプリの起動確認
 ```bash
-# ログを表示
-heroku logs --tail -a booklight-ai
+heroku open -a booklight-ai-api
+heroku logs --tail -a booklight-ai-api
 ```
 
-## 7. トラブルシューティング
+## トラブルシューティング
 
-### データベース接続エラー
-
-データベース接続エラーが発生した場合は、以下のコマンドでデータベースURLを確認してください。
-
+- デプロイ失敗時のログ確認
 ```bash
-heroku config:get DATABASE_URL -a booklight-ai
+heroku logs --tail
 ```
 
-### アプリケーションのクラッシュ
-
-アプリケーションがクラッシュした場合は、以下のコマンドでログを確認してください。
-
+- 環境変数の確認
 ```bash
-heroku logs --tail -a booklight-ai
+heroku config -a booklight-ai-api
 ```
 
-### デプロイエラー
-
-デプロイエラーが発生した場合は、以下のコマンドでビルドログを確認してください。
-
-```bash
-heroku builds:info -a booklight-ai
-```
-
-## 8. Chromeエクステンションの設定
-
-Chromeエクステンションのバックグラウンドスクリプト（`chrome-extension/src/background.js`）のAPI URLを本番環境のURLに更新してください。
-
-```javascript
-// APIエンドポイント設定
-const API_BASE_URL = 'https://booklight-ai.herokuapp.com'; // 本番環境
-```
-
-また、マニフェストファイル（`chrome-extension/manifest.json`）のホスト権限も更新してください。
-
-```json
-"host_permissions": [
-  "https://read.amazon.co.jp/*",
-  "https://read.amazon.com/*",
-  "https://booklight-ai.herokuapp.com/*",
-  "https://accounts.google.com/*",
-  "https://oauth2.googleapis.com/*"
-]
-```
-
-## 9. 定期的なバックアップ
-
-データベースの定期的なバックアップを設定することをお勧めします。
-
-```bash
-# バックアップスケジューラーの追加
-heroku addons:create pgbackups:auto-month -a booklight-ai
-
-# 手動バックアップの作成
-heroku pg:backups:capture -a booklight-ai
-```
-
-## 10. スケーリング（必要に応じて）
-
-アプリケーションの負荷が増加した場合は、以下のコマンドでスケーリングを行ってください。
-
-```bash
-# Webプロセスのスケーリング
-heroku ps:scale web=2 -a booklight-ai
-
-# データベースのアップグレード
-heroku addons:upgrade heroku-postgresql:standard-0 -a booklight-ai
+## 注意点
+- Google Cloud ConsoleでOAuth認証情報を更新
+- 承認済みリダイレクトURIに以下を追加:
+  `https://booklight-ai-api.herokuapp.com/auth/callback`
