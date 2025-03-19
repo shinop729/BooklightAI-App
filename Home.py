@@ -25,7 +25,7 @@ def setup_app():
     
     st.set_page_config(page_title="Booklight AI", layout="wide")
     
-    st.sidebar.image("images/booklight_ai_banner.png", width="100%")
+    st.sidebar.image("images/booklight_ai_banner.png", use_container_width=True)
     st.sidebar.title("Booklight AI")
     st.sidebar.markdown("📚 あなたの読書をAIが照らす")
     st.sidebar.markdown("---")
