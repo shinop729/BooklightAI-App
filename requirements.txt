@@ -16,4 +16,4 @@ authlib==1.2.1
 itsdangerous==2.1.2
 sqlalchemy==2.0.25
 alembic==1.13.1
-sentry-sdk[fastapi]==1.45.0
+sentry-sdk[fastapi,sqlalchemy]==1.32.0
