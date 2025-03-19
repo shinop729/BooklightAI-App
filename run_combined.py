@@ -13,11 +13,21 @@ def run_fastapi():
         # Herokuでは内部的にAPI用のポートを設定
         api_port = os.environ.get("API_PORT", "8000")
         print(f"Heroku環境でFastAPIを起動: ポート {api_port}")
+        
+        # デバッグ情報
+        print(f"環境変数:")
+        print(f"  DYNO: {os.getenv('DYNO')}")
+        print(f"  PORT: {os.environ.get('PORT')}")
+        print(f"  API_PORT: {os.environ.get('API_PORT')}")
+        print(f"  HEROKU_APP_NAME: {os.getenv('HEROKU_APP_NAME')}")
+        print(f"  FRONTEND_URL: {os.getenv('FRONTEND_URL')}")
+        print(f"  REDIRECT_URI: {os.getenv('REDIRECT_URI')}")
     else:
         # ローカル環境ではデフォルトポートを使用
         api_port = os.environ.get("API_PORT", "8000")
         print(f"ローカル環境でFastAPIを起動: ポート {api_port}")
     
+    # FastAPIを起動（--root-pathを追加してルーティングを設定）
     subprocess.run(["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", api_port])
 
 def run_streamlit():

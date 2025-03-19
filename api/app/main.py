@@ -89,8 +89,13 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title=settings.APP_NAME,
     description="Kindle ハイライト管理のためのAPI",
-    version=settings.VERSION
+    version=settings.VERSION,
+    # Heroku環境ではroot_pathを設定
+    root_path="/api" if os.getenv("DYNO") else ""
 )
+
+# デバッグ情報をログに出力
+logger.info(f"FastAPIアプリを初期化: root_path={'/api' if os.getenv('DYNO') else ''}")
 
 # 例外ハンドラの設定
 setup_exception_handlers(app)
