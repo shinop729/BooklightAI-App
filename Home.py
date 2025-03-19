@@ -12,6 +12,7 @@ import urllib.parse
 from pathlib import Path
 import auth
 from progress_display import display_summary_progress_in_sidebar
+import requests
 
 def local_css(file_name):
     """Load and inject a local CSS file into the Streamlit app"""
@@ -160,8 +161,48 @@ def display_quote_with_button(content, title, author, index=0):
         st.session_state.selected_book_title = title
         st.switch_page("pages/BookDetail.py")
 
+# FastAPIへのリクエストをプロキシする関数
+def proxy_api_request():
+    """
+    /api/で始まるリクエストをFastAPIサーバーにプロキシする
+    """
+    # リクエストパスを取得
+    query_params = st.query_params
+    request_path = query_params.get("_path", "")
+    
+    # /api/で始まるリクエストのみ処理
+    if request_path.startswith("/api/"):
+        try:
+            # FastAPIサーバーのURLを構築
+            api_path = request_path[4:]  # /api/ を除去
+            api_url = f"http://localhost:8000{api_path}"
+            
+            # Heroku環境ではポート番号を環境変数から取得
+            if os.getenv("DYNO"):
+                api_port = os.environ.get("API_PORT", "8000")
+                api_url = f"http://localhost:{api_port}{api_path}"
+            
+            st.write(f"APIリクエスト: {api_url}")
+            
+            # リクエストをプロキシ
+            response = requests.get(api_url)
+            
+            # レスポンスを返す
+            return response.json()
+        except Exception as e:
+            st.error(f"APIリクエストエラー: {e}")
+            return {"error": str(e)}
+    
+    return None
+
 def main():
     setup_app()
+    
+    # APIリクエストをプロキシ
+    api_response = proxy_api_request()
+    if api_response:
+        st.json(api_response)
+        return
     
     # ユーザーディレクトリの作成
     auth.create_user_directories()
