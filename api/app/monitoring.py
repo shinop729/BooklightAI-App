@@ -1,9 +1,14 @@
 import os
 import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastAPIIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlAlchemyIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 import logging
+
+try:
+    from sentry_sdk.integrations.fastapi import FastAPIIntegration
+except ImportError:
+    # Fallback for older Sentry SDK versions
+    FastAPIIntegration = None
 
 def init_sentry(settings):
     """
@@ -21,13 +26,12 @@ def init_sentry(settings):
             
             # インテグレーションの設定
             integrations=[
-                FastAPIIntegration(),
                 SqlAlchemyIntegration(),
                 LoggingIntegration(
                     level=logging.INFO,     # 通知レベル
                     event_level=logging.ERROR  # エラーレベル
                 )
-            ],
+            ] + ([FastAPIIntegration()] if FastAPIIntegration is not None else []),
             
             # パフォーマンストラッキングの有効化
             traces_sample_rate=0.2,  # 20%のトランザクションをトレース
