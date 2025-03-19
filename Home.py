@@ -27,10 +27,9 @@ def setup_app():
     
     st.sidebar.markdown("""
     <div style="text-align: center; margin-bottom: 20px;">
-        <h1 style="color: #4A90E2; font-size: 24px;">Booklight AI</h1>
+        <h1 style="color: #4A90E2; font-size: 28px;">Booklight AI</h1>
     </div>
     """, unsafe_allow_html=True)
-    st.sidebar.title("Booklight AI")
     st.sidebar.markdown("📚 あなたの読書をAIが照らす")
     st.sidebar.markdown("---")
 
