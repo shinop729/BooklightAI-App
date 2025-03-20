@@ -195,6 +195,7 @@ def handle_auth_flow():
     code = st.query_params.get("code", None)
     state = st.query_params.get("state", None)
     
+    # デバッグログの追加
     logger.info(f"認証コールバック処理開始: code={bool(code)}, state={bool(state)}")
     logger.debug(f"クエリパラメータ: {dict(st.query_params)}")
     
@@ -234,13 +235,20 @@ def handle_auth_flow():
                 st.query_params.clear()
                 
                 return True
+            else:
+                logger.error("ユーザー情報の取得に失敗しました")
+                st.error("ユーザー情報の取得に失敗しました。再度ログインしてください。")
         except Exception as e:
             logger.error(f"認証エラー詳細: {str(e)}")
             logger.error(traceback.format_exc())
             st.error(f"認証エラー: {str(e)}")
-            st.error(f"詳細エラー: {traceback.format_exc()}")
+            st.code(traceback.format_exc(), language="python")
     else:
         logger.warning("認証コードが見つかりません")
+        if state:
+            logger.info("stateパラメータは存在しますが、codeパラメータがありません")
+        else:
+            logger.warning("認証パラメータが完全に欠落しています")
     
     return False
 

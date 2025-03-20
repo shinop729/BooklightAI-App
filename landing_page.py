@@ -81,23 +81,38 @@ def main():
     # ユーザーディレクトリの作成
     auth.create_user_directories()
     
+    # より詳細なデバッグ情報の追加
+    print("クエリパラメータ:", st.query_params)
+    print("認証コード:", st.query_params.get("code"))
+    print("ステート:", st.query_params.get("state"))
+    
     # 認証フローの処理
     try:
         # クエリパラメータの存在を確認
-        has_auth_params = "code" in st.query_params
-        if has_auth_params:
-            st.info("認証情報を処理中です...")
+        code = st.query_params.get("code")
+        state = st.query_params.get("state")
         
-        auth_success = auth.handle_auth_flow()
-        if auth_success:
-            st.success("ログインに成功しました！")
-            # 明示的にホームページに遷移
-            st.switch_page("Home.py")
-        elif has_auth_params:
-            # 認証パラメータがあったが失敗した場合
-            st.error("認証に失敗しました。再度ログインしてください。")
-            # エラーの詳細情報を表示
-            st.info("ブラウザのコンソールログを確認して、詳細なエラー情報を開発者に提供してください。")
+        if code and state:
+            st.info("認証情報を処理中です...")
+            auth_success = auth.handle_auth_flow()
+            
+            if auth_success:
+                st.success("ログインに成功しました！")
+                st.switch_page("Home.py")
+            else:
+                st.error("認証に失敗しました。再度ログインしてください。")
+                st.info("詳細情報: 認証コードの処理中にエラーが発生しました。")
+        elif "code" in st.query_params:
+            # codeはあるがstateがない場合
+            st.warning("認証情報が不完全です。stateパラメータが見つかりません。")
+            st.info("認証情報を処理中です...")
+            auth_success = auth.handle_auth_flow()
+            
+            if auth_success:
+                st.success("ログインに成功しました！")
+                st.switch_page("Home.py")
+            else:
+                st.error("認証に失敗しました。再度ログインしてください。")
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
