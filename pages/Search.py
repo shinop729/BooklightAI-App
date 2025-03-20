@@ -13,12 +13,12 @@ from dotenv import load_dotenv
 from datetime import datetime
 from pathlib import Path
 
-from langchain.docstore.document import Document
-from langchain.chat_models import ChatOpenAI
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import Chroma
+from langchain_community.docstore.document import Document
+from langchain_community.chat_models import ChatOpenAI
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
 from langchain.prompts import PromptTemplate
-from langchain.retrievers import BM25Retriever
+from langchain_community.retrievers import BM25Retriever
 from langchain.schema import SystemMessage, HumanMessage
 
 # タグ入力UIライブラリ

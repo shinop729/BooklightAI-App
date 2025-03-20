@@ -1,4 +1,4 @@
-streamlit==1.32.2
+streamlit>=1.32.2
 pydantic==2.10.6
 pydantic_core==2.27.2
 pydantic-settings==2.1.0
@@ -20,6 +20,7 @@ alembic==1.13.1
 sentry-sdk==1.32.0
 streamlit-tags==1.2.8
 langchain==0.1.12
+langchain-community>=0.0.10
 chromadb==0.4.24
 openai==1.14.2
 tiktoken==0.6.0
