@@ -1,6 +1,7 @@
 // Google認証コールバックを処理するコンテンツスクリプト
 (function() {
   console.log('Booklight AI: 認証コールバックスクリプトが読み込まれました');
+  console.log('Booklight AI: URL', window.location.href);
   
   // URLとクッキーからトークンとユーザー情報を取得
   function getTokenFromUrl() {
@@ -35,6 +36,9 @@
         error: error || 'なし' 
       });
       
+      // ドキュメントのHTML内容をログに出力（デバッグ用）
+      console.log('Booklight AI: ドキュメント内容', document.documentElement.outerHTML.substring(0, 500) + '...');
+      
       return { token, user, error };
     } catch (error) {
       console.error('Booklight AI: URLパラメータの解析に失敗しました', error);
@@ -60,6 +64,9 @@
       // ページ内のスクリプトタグを確認
       const scripts = document.querySelectorAll('script');
       console.log(`Booklight AI: ページ内のスクリプトタグ数: ${scripts.length}`);
+      for (let i = 0; i < scripts.length; i++) {
+        console.log(`Booklight AI: スクリプト[${i}] type=${scripts[i].type}, src=${scripts[i].src}`);
+      }
       
       if (error) {
         console.error('Booklight AI: 認証エラー', error);
@@ -86,24 +93,48 @@
         
         // トークンをバックグラウンドスクリプトに送信
         try {
-          chrome.runtime.sendMessage({
-            action: 'google_auth_success',
-            token: token,
-            user: user
-          }, (response) => {
-            if (chrome.runtime.lastError) {
-              console.error('Booklight AI: メッセージ送信エラー', chrome.runtime.lastError);
-            } else {
-              console.log('Booklight AI: トークン送信成功', response);
-              
-              // 5秒後に自動的にウィンドウを閉じる
-              setTimeout(() => {
-                window.close();
-              }, 5000);
-            }
-          });
+          // 直接グローバルスコープからchromeオブジェクトにアクセス
+          if (typeof chrome !== 'undefined' && chrome.runtime) {
+            chrome.runtime.sendMessage({
+              action: 'google_auth_success',
+              token: token,
+              user: user
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('Booklight AI: メッセージ送信エラー', chrome.runtime.lastError);
+              } else {
+                console.log('Booklight AI: トークン送信成功', response);
+                
+                // 5秒後に自動的にウィンドウを閉じる
+                setTimeout(() => {
+                  window.close();
+                }, 5000);
+              }
+            });
+          } else {
+            console.warn('Booklight AI: chrome.runtime APIが利用できません');
+            
+            // 代替手段として、windowオブジェクトにメッセージを保存
+            window.BOOKLIGHT_AUTH_DATA = { token, user };
+            console.log('Booklight AI: 認証データをwindowオブジェクトに保存しました');
+            
+            // 10秒後に自動的にウィンドウを閉じる
+            setTimeout(() => {
+              window.close();
+            }, 10000);
+          }
         } catch (e) {
           console.error('Booklight AI: chrome.runtime.sendMessageの呼び出しに失敗しました', e);
+          console.error(e.stack);
+          
+          // 代替手段として、windowオブジェクトにメッセージを保存
+          window.BOOKLIGHT_AUTH_DATA = { token, user };
+          console.log('Booklight AI: 認証データをwindowオブジェクトに保存しました（エラー発生後）');
+          
+          // 10秒後に自動的にウィンドウを閉じる
+          setTimeout(() => {
+            window.close();
+          }, 10000);
         }
       } else {
         console.warn('Booklight AI: トークンまたはユーザー情報がありません');
@@ -111,13 +142,16 @@
       }
     } catch (error) {
       console.error('Booklight AI: 認証コールバック処理中にエラーが発生しました', error);
+      console.error(error.stack);
       
       // エラーメッセージをバックグラウンドスクリプトに送信
       try {
-        chrome.runtime.sendMessage({
-          action: 'google_auth_error',
-          error: error.message || '不明なエラー'
-        });
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+          chrome.runtime.sendMessage({
+            action: 'google_auth_error',
+            error: error.message || '不明なエラー'
+          });
+        }
       } catch (e) {
         console.error('Booklight AI: chrome.runtime.sendMessageの呼び出しに失敗しました', e);
       }
@@ -131,6 +165,9 @@
     window.addEventListener('load', processAuthCallback);
   }
   
+  // DOMContentLoadedイベントでも実行（より早いタイミング）
+  window.addEventListener('DOMContentLoaded', processAuthCallback);
+  
   // DOMの変更を監視して、認証情報が動的に追加された場合に対応
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -141,12 +178,33 @@
     }
   });
   
-  // body要素の変更を監視
-  observer.observe(document.body, { childList: true, subtree: true });
+  // body要素の監視
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    // bodyがまだ存在しない場合は、DOMContentLoadedイベントで監視を開始
+    window.addEventListener('DOMContentLoaded', () => {
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
   
   // 30秒後に監視を停止（リソース節約のため）
   setTimeout(() => {
     observer.disconnect();
     console.log('Booklight AI: DOM監視を停止しました');
   }, 30000);
+  
+  // 定期的に認証情報をチェック（バックアップ手段）
+  let checkCount = 0;
+  const maxChecks = 10;
+  const checkInterval = setInterval(() => {
+    checkCount++;
+    console.log(`Booklight AI: 定期チェック ${checkCount}/${maxChecks}`);
+    processAuthCallback();
+    
+    if (checkCount >= maxChecks) {
+      clearInterval(checkInterval);
+      console.log('Booklight AI: 定期チェックを停止しました');
+    }
+  }, 1000);
 })();

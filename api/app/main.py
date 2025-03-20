@@ -369,6 +369,7 @@ async def auth_callback(
         is_secure = os.getenv("DYNO") is not None  # Heroku環境ではTrue
         
         # 認証成功ページを返す（リダイレクトではなく直接HTMLを返す）
+        # JavaScriptモジュールではなく通常のJavaScriptとして読み込む
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -383,38 +384,6 @@ async def auth_callback(
                 .success {{ color: #5cb85c; }}
                 button {{ background-color: #5cb85c; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
             </style>
-            <script>
-                // トークンとユーザー情報をChromeに送信
-                function sendAuthInfoToExtension() {{
-                    const token = "{access_token}";
-                    const user = "{user_data['username']}";
-                    if (token && user && chrome && chrome.runtime) {{
-                        try {{
-                            chrome.runtime.sendMessage({{
-                                action: 'google_auth_success',
-                                token: token,
-                                user: user
-                            }});
-                            console.log('認証情報を拡張機能に送信しました');
-                        }} catch (e) {{
-                            console.error('拡張機能への送信に失敗しました:', e);
-                        }}
-                    }}
-                    // 5秒後に自動的にウィンドウを閉じる
-                    setTimeout(() => {{
-                        window.close();
-                    }}, 5000);
-                }}
-                
-                // ページ読み込み時に実行
-                window.onload = function() {{
-                    try {{
-                        sendAuthInfoToExtension();
-                    }} catch (e) {{
-                        console.error('認証処理中にエラーが発生しました:', e);
-                    }}
-                }};
-            </script>
         </head>
         <body>
             <h1>Booklight AI</h1>
@@ -425,6 +394,50 @@ async def auth_callback(
                 <p>自動的に閉じられない場合は、下のボタンをクリックしてください。</p>
                 <button onclick="window.close()">ウィンドウを閉じる</button>
             </div>
+            
+            <script type="text/javascript">
+                // トークンとユーザー情報をChromeに送信
+                function sendAuthInfoToExtension() {{
+                    const token = "{access_token}";
+                    const user = "{user_data['username']}";
+                    if (token && user && window.chrome && window.chrome.runtime) {{
+                        try {{
+                            window.chrome.runtime.sendMessage({{
+                                action: 'google_auth_success',
+                                token: token,
+                                user: user
+                            }}, function(response) {{
+                                console.log('認証情報送信結果:', response);
+                            }});
+                            console.log('認証情報を拡張機能に送信しました');
+                        }} catch (e) {{
+                            console.error('拡張機能への送信に失敗しました:', e);
+                        }}
+                    }} else {{
+                        console.log('Chrome拡張機能APIが利用できないか、認証情報が不足しています');
+                        console.log('Token存在:', !!token);
+                        console.log('User存在:', !!user);
+                        console.log('Chrome API存在:', !!(window.chrome && window.chrome.runtime));
+                    }}
+                    
+                    // 5秒後に自動的にウィンドウを閉じる
+                    setTimeout(function() {{
+                        window.close();
+                    }}, 5000);
+                }}
+                
+                // ページ読み込み時に実行
+                window.addEventListener('DOMContentLoaded', function() {{
+                    try {{
+                        console.log('認証成功ページが読み込まれました');
+                        setTimeout(function() {{
+                            sendAuthInfoToExtension();
+                        }}, 500);
+                    }} catch (e) {{
+                        console.error('認証処理中にエラーが発生しました:', e);
+                    }}
+                }});
+            </script>
         </body>
         </html>
         """
@@ -485,6 +498,16 @@ async def auth_callback(
                 <p>ウィンドウを閉じて、再度お試しください。</p>
                 <button onclick="window.close()">ウィンドウを閉じる</button>
             </div>
+            
+            <script type="text/javascript">
+                // エラー情報をコンソールに出力
+                console.error('認証エラー:', {str(e)});
+                
+                // 10秒後に自動的にウィンドウを閉じる
+                setTimeout(function() {{
+                    window.close();
+                }}, 10000);
+            </script>
         </body>
         </html>
         """
