@@ -25,9 +25,6 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Google OAuth設定
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 # リダイレクトURIの設定（Herokuでは環境変数から取得）
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 if not REDIRECT_URI:
@@ -45,6 +42,19 @@ if not REDIRECT_URI:
 # リダイレクトURIをログに出力（デバッグ用）
 import logging
 logging.getLogger("booklight-api").info(f"設定されたリダイレクトURI: {REDIRECT_URI}")
+
+# Google OAuth認証クライアントの設定
+oauth = OAuth()
+oauth.register(
+    name='google',
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={
+        'scope': 'openid email profile',
+        'redirect_uri': REDIRECT_URI  # 明示的にリダイレクトURIを設定
+    }
+)
 
 # ユーザーデータディレクトリ（後方互換性のため）
 USER_DATA_DIR = Path("user_data")
