@@ -275,6 +275,9 @@ async def authenticate_with_google(token: str, db: Session = None):
             detail=f"Authentication error: {str(e)}"
         )
 
+# リダイレクトURIを取得
+redirect_uri = os.getenv("REDIRECT_URI", "https://booklight-ai.com/auth/callback")
+
 # Google OAuth認証クライアントの設定
 oauth = OAuth()
 oauth.register(
@@ -283,6 +286,7 @@ oauth.register(
     client_secret=GOOGLE_CLIENT_SECRET,
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={
-        'scope': 'openid email profile'
+        'scope': 'openid email profile',
+        'redirect_uri': redirect_uri  # 明示的にリダイレクトURIを設定
     }
 )
