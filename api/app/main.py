@@ -321,6 +321,10 @@ async def auth_callback(
         logger.info(f"クエリパラメータ: {request.query_params}")
         logger.info(f"ヘッダー: Host={request.headers.get('host')}, Origin={request.headers.get('origin')}")
         
+        # クエリパラメータを直接ログに出力（デバッグ用）
+        for key, value in request.query_params.items():
+            logger.info(f"クエリパラメータ: {key}={value}")
+        
         token = await oauth.google.authorize_access_token(request)
         user_info = await oauth.google.parse_id_token(request, token)
         
@@ -364,10 +368,66 @@ async def auth_callback(
         # Heroku環境ではHTTPSが強制されるため、secure=Trueを設定
         is_secure = os.getenv("DYNO") is not None  # Heroku環境ではTrue
         
-        # リダイレクトURLの構築（トークンはURLパラメータとクッキーの両方に設定）
-        # 既存の実装との互換性のために、URLパラメータも残す
-        redirect_url = f"{frontend_url}?token={access_token}&user={user_data['username']}"
-        logger.info(f"認証後リダイレクト: {redirect_url}")
+        # 認証成功ページを返す（リダイレクトではなく直接HTMLを返す）
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Booklight AI - 認証成功</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+                h1 {{ color: #2a75bb; }}
+                .card {{ background-color: #f5f5f5; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
+                .success {{ color: #5cb85c; }}
+                button {{ background-color: #5cb85c; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
+            </style>
+            <script>
+                // トークンとユーザー情報をChromeに送信
+                function sendAuthInfoToExtension() {{
+                    const token = "{access_token}";
+                    const user = "{user_data['username']}";
+                    if (token && user && chrome && chrome.runtime) {{
+                        try {{
+                            chrome.runtime.sendMessage({{
+                                action: 'google_auth_success',
+                                token: token,
+                                user: user
+                            }});
+                            console.log('認証情報を拡張機能に送信しました');
+                        }} catch (e) {{
+                            console.error('拡張機能への送信に失敗しました:', e);
+                        }}
+                    }}
+                    // 5秒後に自動的にウィンドウを閉じる
+                    setTimeout(() => {{
+                        window.close();
+                    }}, 5000);
+                }}
+                
+                // ページ読み込み時に実行
+                window.onload = function() {{
+                    try {{
+                        sendAuthInfoToExtension();
+                    }} catch (e) {{
+                        console.error('認証処理中にエラーが発生しました:', e);
+                    }}
+                }};
+            </script>
+        </head>
+        <body>
+            <h1>Booklight AI</h1>
+            <div class="card">
+                <h2 class="success">認証成功</h2>
+                <p>ようこそ、{user_data['full_name'] or user_data['username']}さん！</p>
+                <p>このウィンドウは自動的に閉じられます。</p>
+                <p>自動的に閉じられない場合は、下のボタンをクリックしてください。</p>
+                <button onclick="window.close()">ウィンドウを閉じる</button>
+            </div>
+        </body>
+        </html>
+        """
         
         # ユーザーコンテキストの設定
         set_user_context(user_id=user_data["username"], email=user_data["email"])
@@ -375,11 +435,11 @@ async def auth_callback(
         # パフォーマンスメトリクスの記録
         log_performance_metric("auth_success_rate", 1.0)
         
-        # リダイレクトレスポンスを作成
-        redirect_response = RedirectResponse(url=redirect_url)
+        # HTMLレスポンスを返す
+        response = HTMLResponse(content=html_content)
         
         # クッキーを設定
-        redirect_response.set_cookie(
+        response.set_cookie(
             key="auth_token",
             value=access_token,
             httponly=True,
@@ -389,7 +449,7 @@ async def auth_callback(
             path="/"
         )
         
-        return redirect_response
+        return response
     
     except Exception as e:
         logger.error(f"認証エラー: {e}")
@@ -399,12 +459,37 @@ async def auth_callback(
         # パフォーマンスメトリクスの記録
         log_performance_metric("auth_success_rate", 0.0)
         
-        # エラー時もフロントエンドURLを検出
-        frontend_url = await determine_frontend_url(request)
-        error_redirect = f"{frontend_url}?error={str(e)}"
-        logger.error(f"エラー時リダイレクト: {error_redirect}")
+        # エラー時はHTMLエラーページを返す
+        html_error = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Booklight AI - 認証エラー</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+                h1 {{ color: #d9534f; }}
+                .card {{ background-color: #f2dede; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
+                .error {{ color: #a94442; }}
+                button {{ background-color: #5bc0de; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
+                pre {{ text-align: left; background: #f8f8f8; padding: 10px; border-radius: 4px; overflow-x: auto; }}
+            </style>
+        </head>
+        <body>
+            <h1>Booklight AI</h1>
+            <div class="card">
+                <h2 class="error">認証エラー</h2>
+                <p>認証処理中にエラーが発生しました。</p>
+                <pre>{str(e)}</pre>
+                <p>ウィンドウを閉じて、再度お試しください。</p>
+                <button onclick="window.close()">ウィンドウを閉じる</button>
+            </div>
+        </body>
+        </html>
+        """
         
-        return RedirectResponse(url=error_redirect)
+        return HTMLResponse(content=html_error, status_code=500)
 
 # デバッグ用の認証情報エンドポイント
 @app.get("/debug-auth")
