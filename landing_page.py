@@ -26,8 +26,8 @@ def check_basic_auth():
         return True
         
     # クエリパラメータからの認証情報取得
-    query_params = st.experimental_get_query_params()
-    auth_param = query_params.get("auth", [""])[0]
+    query_params = st.query_params
+    auth_param = query_params.get("auth", "")
     
     if auth_param:
         try:
@@ -50,7 +50,7 @@ def check_basic_auth():
     if st.button("ログイン"):
         if username == USERNAME and password == PASSWORD:
             st.session_state["authenticated"] = True
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("認証に失敗しました")
     
