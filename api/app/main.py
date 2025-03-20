@@ -208,8 +208,13 @@ async def root():
 @track_transaction("google_oauth_redirect")
 async def login_via_google(request: Request):
     """Google OAuth認証のリダイレクトエンドポイント"""
-    # 明示的にリダイレクトURIを設定
-    redirect_uri = os.getenv("REDIRECT_URI", "https://booklight-ai.com/auth/callback")
+    # カスタムドメインを優先的に使用
+    custom_domain = os.getenv("CUSTOM_DOMAIN")
+    if custom_domain:
+        redirect_uri = f"https://{custom_domain}/auth/callback"
+    else:
+        redirect_uri = os.getenv("REDIRECT_URI", "https://booklight-ai.com/auth/callback")
+    
     logger.info(f"Google認証リダイレクトURI: {redirect_uri}")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 

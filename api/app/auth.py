@@ -31,7 +31,7 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 # リダイレクトURIの設定（Herokuでは環境変数から取得）
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 if not REDIRECT_URI:
-    # カスタムドメインがある場合
+    # カスタムドメインがある場合（優先）
     custom_domain = os.getenv("CUSTOM_DOMAIN")
     if custom_domain:
         REDIRECT_URI = f"https://{custom_domain}/auth/callback"
@@ -41,6 +41,10 @@ if not REDIRECT_URI:
     # それ以外の場合はローカル開発用
     else:
         REDIRECT_URI = "http://localhost:8000/auth/callback"
+
+# リダイレクトURIをログに出力（デバッグ用）
+import logging
+logging.getLogger("booklight-api").info(f"設定されたリダイレクトURI: {REDIRECT_URI}")
 
 # ユーザーデータディレクトリ（後方互換性のため）
 USER_DATA_DIR = Path("user_data")
