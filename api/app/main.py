@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Security
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, APIKeyHeader
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, APIKeyHeader, HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -103,6 +103,28 @@ setup_exception_handlers(app)
 # セッションミドルウェアの追加
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("JWT_SECRET_KEY", "fallback-secret-key"))
 
+# ベーシック認証の設定
+security = HTTPBasic()
+USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
+PASSWORD = os.getenv("BASIC_AUTH_PASSWORD", "password")
+
+# 認証関数
+def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    # 開発環境では認証をスキップするオプション
+    if os.getenv("ENVIRONMENT") == "development" and os.getenv("SKIP_BASIC_AUTH") == "true":
+        return True
+        
+    correct_username = secrets.compare_digest(credentials.username, USERNAME)
+    correct_password = secrets.compare_digest(credentials.password, PASSWORD)
+    
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="認証に失敗しました",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return True
+
 # CORS設定の改善
 allowed_origins = settings.CORS_ORIGINS
 
@@ -113,6 +135,58 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 特定のパスのみに認証を適用するミドルウェア
+@app.middleware("http")
+async def basic_auth_middleware(request: Request, call_next):
+    # 認証が必要なパスかチェック
+    path = request.url.path
+    
+    # 認証が必要なパスのリスト
+    protected_paths = [
+        "/.env", 
+        "/.env.local", 
+        "/.env.dev", 
+        "/api/.env",
+        # 他の保護したいパスを追加
+    ]
+    
+    # 認証が必要なパスの場合
+    if any(path.startswith(p) for p in protected_paths):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return Response(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content="認証が必要です",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+            
+        try:
+            # Basic認証ヘッダーの解析
+            auth_type, auth_value = auth_header.split(" ", 1)
+            if auth_type.lower() != "basic":
+                raise ValueError("Basic認証ではありません")
+                
+            import base64
+            decoded = base64.b64decode(auth_value).decode("utf-8")
+            username, password = decoded.split(":", 1)
+            
+            # 認証情報の検証
+            correct_username = secrets.compare_digest(username, USERNAME)
+            correct_password = secrets.compare_digest(password, PASSWORD)
+            
+            if not (correct_username and correct_password):
+                raise ValueError("認証情報が無効です")
+                
+        except Exception as e:
+            return Response(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content="認証に失敗しました",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+    
+    # 認証が必要ないパスまたは認証成功の場合は次のミドルウェアへ
+    return await call_next(request)
 
 # デバッグエンドポイント
 @app.get("/debug")

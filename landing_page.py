@@ -1,7 +1,61 @@
 import streamlit as st
 import os
+import base64
 from dotenv import load_dotenv
 import auth
+from urllib.parse import urlparse
+
+# ベーシック認証の設定
+def check_basic_auth():
+    """ベーシック認証のチェック"""
+    # 開発環境では認証をスキップするオプション
+    if os.getenv("ENVIRONMENT") == "development" and os.getenv("SKIP_BASIC_AUTH") == "true":
+        return True
+        
+    # Heroku環境でのみ認証を適用
+    is_heroku = os.getenv("DYNO") is not None
+    if not is_heroku:
+        return True
+        
+    # 認証情報
+    USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
+    PASSWORD = os.getenv("BASIC_AUTH_PASSWORD", "password")
+    
+    # 認証済みかチェック
+    if st.session_state.get("authenticated"):
+        return True
+        
+    # クエリパラメータからの認証情報取得
+    query_params = st.experimental_get_query_params()
+    auth_param = query_params.get("auth", [""])[0]
+    
+    if auth_param:
+        try:
+            # Base64デコード
+            decoded = base64.b64decode(auth_param).decode("utf-8")
+            username, password = decoded.split(":", 1)
+            
+            # 認証情報の検証
+            if username == USERNAME and password == PASSWORD:
+                st.session_state["authenticated"] = True
+                return True
+        except:
+            pass
+    
+    # 認証失敗時はログインフォームを表示
+    st.markdown("# Booklight AI - ログイン")
+    username = st.text_input("ユーザー名")
+    password = st.text_input("パスワード", type="password")
+    
+    if st.button("ログイン"):
+        if username == USERNAME and password == PASSWORD:
+            st.session_state["authenticated"] = True
+            st.experimental_rerun()
+        else:
+            st.error("認証に失敗しました")
+    
+    # 認証が完了するまで他のコンテンツを表示しない
+    st.stop()
 
 def local_css(file_name):
     """Load and inject a local CSS file into the Streamlit app"""
@@ -20,6 +74,9 @@ def setup_app():
 
 def main():
     setup_app()
+    
+    # ベーシック認証のチェック
+    check_basic_auth()
     
     # ユーザーディレクトリの作成
     auth.create_user_directories()
