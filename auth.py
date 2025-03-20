@@ -8,6 +8,7 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
+import traceback
 
 # ロガーの設定
 logger = logging.getLogger('booklight-auth')
@@ -17,6 +18,14 @@ handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+# ファイルベースのロギング設定
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+file_handler = logging.FileHandler(log_dir / "auth.log")
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_handler)
 
 # .envファイルを読み込む（存在する場合）
 env_path = Path(__file__).parent / '.env'
@@ -184,14 +193,22 @@ def handle_auth_flow():
     """認証フローを処理"""
     # URLパラメータからcodeを取得
     code = st.query_params.get("code", None)
+    state = st.query_params.get("state", None)
+    
+    logger.info(f"認証コールバック処理開始: code={bool(code)}, state={bool(state)}")
+    logger.debug(f"クエリパラメータ: {dict(st.query_params)}")
     
     if code:
         try:
+            logger.info("認証コードの交換を開始")
             # コードをトークンと交換
             credentials = exchange_code_for_token(code)
+            logger.info("トークン取得成功")
             
             # ユーザー情報を取得
+            logger.info("ユーザー情報の取得を開始")
             user_info = get_user_info(credentials)
+            logger.info(f"ユーザー情報取得結果: {bool(user_info)}")
             
             if user_info:
                 # セッションにユーザー情報を保存
@@ -218,11 +235,12 @@ def handle_auth_flow():
                 
                 return True
         except Exception as e:
-            import traceback
             logger.error(f"認証エラー詳細: {str(e)}")
             logger.error(traceback.format_exc())
             st.error(f"認証エラー: {str(e)}")
             st.error(f"詳細エラー: {traceback.format_exc()}")
+    else:
+        logger.warning("認証コードが見つかりません")
     
     return False
 

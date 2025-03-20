@@ -1,0 +1,13 @@
+2025-03-20 16:55:57,682 - root - INFO - すべての必須環境変数が設定されています
+2025-03-20 16:55:57,682 - root - INFO - 認証関連の環境変数設定:
+2025-03-20 16:55:57,682 - root - INFO -   REDIRECT_URI: 設定済み
+2025-03-20 16:55:57,682 - root - INFO -   FRONTEND_URL: 設定済み
+2025-03-20 16:55:57,682 - root - INFO -   CUSTOM_DOMAIN: 設定済み
+2025-03-20 16:55:57,682 - root - INFO -   HEROKU_APP_NAME: 設定済み
+2025-03-20 16:55:57,682 - root - INFO - リダイレクトURI決定結果: https://booklight-ai.com/auth/callback (ソース: カスタムドメイン)
+2025-03-20 16:55:57,682 - root - INFO - StreamlitリダイレクトURI決定結果: https://booklight-ai.com/auth/callback (ソース: カスタムドメイン)
+2025-03-20 16:55:57,682 - root - INFO - 
+Google Cloud Console設定確認:
+2025-03-20 16:55:57,682 - root - INFO - 以下のリダイレクトURIがGoogle Cloud Consoleの承認済みリダイレクトURIに設定されているか確認してください:
+2025-03-20 16:55:57,682 - root - INFO - 1. https://booklight-ai.com/auth/callback (FastAPI)
+2025-03-20 16:55:57,682 - root - INFO - 2. https://booklight-ai.com/auth/callback (Streamlit)

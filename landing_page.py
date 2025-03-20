@@ -82,11 +82,32 @@ def main():
     auth.create_user_directories()
     
     # 認証フローの処理
-    auth_success = auth.handle_auth_flow()
-    if auth_success:
-        st.success("ログインに成功しました！")
-        # ログイン成功時はページをリロード
-        st.rerun()
+    try:
+        # クエリパラメータの存在を確認
+        has_auth_params = "code" in st.query_params
+        if has_auth_params:
+            st.info("認証情報を処理中です...")
+        
+        auth_success = auth.handle_auth_flow()
+        if auth_success:
+            st.success("ログインに成功しました！")
+            # 明示的にホームページに遷移
+            st.switch_page("Home.py")
+        elif has_auth_params:
+            # 認証パラメータがあったが失敗した場合
+            st.error("認証に失敗しました。再度ログインしてください。")
+            # エラーの詳細情報を表示
+            st.info("ブラウザのコンソールログを確認して、詳細なエラー情報を開発者に提供してください。")
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        st.error(f"予期しないエラーが発生しました: {e}")
+        st.code(error_details, language="python")
+        
+        # ログにも記録
+        import logging
+        logging.error(f"認証処理中の予期しないエラー: {e}")
+        logging.error(error_details)
     
     # ログイン状態のチェック
     if auth.is_user_authenticated():
