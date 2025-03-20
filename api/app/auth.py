@@ -30,17 +30,15 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 # リダイレクトURIの設定（Herokuでは環境変数から取得）
 REDIRECT_URI = os.getenv("REDIRECT_URI")
-if not REDIRECT_URI or 'localhost' in REDIRECT_URI:
-    # 環境変数が設定されていない場合はデフォルト値を使用
-    # 本番環境では適切に設定する必要がある
-    is_heroku = os.getenv("DYNO") is not None  # Herokuで実行されているかどうか
-    if is_heroku:
-        app_name = os.getenv("HEROKU_APP_NAME", "")
-        if app_name:
-            REDIRECT_URI = f"https://{app_name}.herokuapp.com/auth/callback"
-        else:
-            # アプリ名が不明な場合はデフォルト値を使用
-            REDIRECT_URI = "http://localhost:8000/auth/callback"
+if not REDIRECT_URI:
+    # カスタムドメインがある場合
+    custom_domain = os.getenv("CUSTOM_DOMAIN")
+    if custom_domain:
+        REDIRECT_URI = f"https://{custom_domain}/auth/callback"
+    # Herokuアプリ名がある場合
+    elif os.getenv("HEROKU_APP_NAME"):
+        REDIRECT_URI = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com/auth/callback"
+    # それ以外の場合はローカル開発用
     else:
         REDIRECT_URI = "http://localhost:8000/auth/callback"
 
