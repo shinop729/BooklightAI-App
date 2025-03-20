@@ -53,6 +53,19 @@ def run_streamlit():
     for file in os.listdir(current_dir):
         print(f" - {file}")
     
+    def run_streamlit():
+    time.sleep(5)  # FastAPIの起動を待つ
+    
+    # ルートディレクトリに戻る
+    os.chdir('..')
+    
+    # デバッグ情報
+    current_dir = os.getcwd()
+    print(f"現在のディレクトリ: {current_dir}")
+    print("ディレクトリ内のファイル:")
+    for file in os.listdir(current_dir):
+        print(f" - {file}")
+    
     # ポート設定
     is_heroku = os.getenv("DYNO") is not None
     if is_heroku:
@@ -60,15 +73,23 @@ def run_streamlit():
         port = os.environ.get("PORT", "8000")
         print(f"Heroku環境でStreamlitを起動: ポート {port}")
         
+        # カスタムドメインの確認
+        custom_domain = os.getenv("CUSTOM_DOMAIN")
+        
         # 環境変数の設定
         app_name = os.getenv("HEROKU_APP_NAME", "")
-        if app_name:
-            # FRONTEND_URL環境変数を設定（認証コールバック用）
-            os.environ["FRONTEND_URL"] = f"https://{app_name}.herokuapp.com"
+        if custom_domain:
+            # カスタムドメインがある場合はそれを優先使用
+            os.environ["FRONTEND_URL"] = f"https://{custom_domain}"
+            os.environ["REDIRECT_URI"] = f"https://{custom_domain}/auth/callback"
+            print(f"カスタムドメイン使用: {custom_domain}")
             print(f"FRONTEND_URL設定: {os.environ['FRONTEND_URL']}")
-            
-            # REDIRECT_URI環境変数を設定（認証コールバック用）
-            os.environ["REDIRECT_URI"] = f"https://{app_name}.herokuapp.com/"
+            print(f"REDIRECT_URI設定: {os.environ['REDIRECT_URI']}")
+        elif app_name:
+            # Herokuドメインを使用
+            os.environ["FRONTEND_URL"] = f"https://{app_name}.herokuapp.com"
+            os.environ["REDIRECT_URI"] = f"https://{app_name}.herokuapp.com/auth/callback"
+            print(f"FRONTEND_URL設定: {os.environ['FRONTEND_URL']}")
             print(f"REDIRECT_URI設定: {os.environ['REDIRECT_URI']}")
     else:
         # ローカル環境ではデフォルトポートを使用

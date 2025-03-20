@@ -20,26 +20,20 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 # リダイレクトURIの設定（Herokuでは環境変数から取得）
 REDIRECT_URI = os.getenv("REDIRECT_URI")
-if not REDIRECT_URI or 'localhost' in REDIRECT_URI:
-    # 環境変数が設定されていない場合はデフォルト値を使用
-    # 本番環境では適切に設定する必要がある
-    is_heroku = os.getenv("DYNO") is not None  # Herokuで実行されているかどうか
-    if is_heroku:
-        app_name = os.getenv("HEROKU_APP_NAME", "")
-        if app_name:
-            # Heroku環境では、Streamlitのルートパスをリダイレクトとして使用
-            REDIRECT_URI = f"https://{app_name}.herokuapp.com/"
-            print(f"Heroku環境でのリダイレクトURI: {REDIRECT_URI}")
-        else:
-            # アプリ名が不明な場合はデフォルト値を使用
-            REDIRECT_URI = "http://localhost:8501/"
+if not REDIRECT_URI:
+    # カスタムドメインがある場合（優先）
+    custom_domain = os.getenv("CUSTOM_DOMAIN")
+    if custom_domain:
+        REDIRECT_URI = f"https://{custom_domain}/auth/callback"
+        print(f"カスタムドメインを使用したリダイレクトURI: {REDIRECT_URI}")
+    # Herokuアプリ名がある場合
+    elif os.getenv("HEROKU_APP_NAME"):
+        REDIRECT_URI = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com/auth/callback"
+        print(f"Heroku URLを使用したリダイレクトURI: {REDIRECT_URI}")
+    # それ以外の場合はローカル開発用
     else:
-        REDIRECT_URI = "http://localhost:8501/"
-SCOPES = [
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "openid"
-]
+        REDIRECT_URI = "http://localhost:8501/auth/callback"
+        print(f"ローカル開発用リダイレクトURI: {REDIRECT_URI}")
 
 # ユーザーデータ保存ディレクトリ
 USER_DATA_DIR = Path("user_data")
@@ -213,3 +207,17 @@ def logout():
         del st.session_state.user_info
     if "credentials" in st.session_state:
         del st.session_state.credentials
+
+# ログ設定
+import logging
+logger = logging.getLogger('google-auth')
+logger.setLevel(logging.DEBUG)
+
+# 環境変数の状態をログに出力
+logger.debug("OAuth関連の環境変数:")
+logger.debug(f"REDIRECT_URI: {os.getenv('REDIRECT_URI')}")
+logger.debug(f"FRONTEND_URL: {os.getenv('FRONTEND_URL')}")
+logger.debug(f"CUSTOM_DOMAIN: {os.getenv('CUSTOM_DOMAIN')}")
+logger.debug(f"HEROKU_APP_NAME: {os.getenv('HEROKU_APP_NAME')}")
+logger.debug(f"GOOGLE_CLIENT_ID設定: {'あり' if os.getenv('GOOGLE_CLIENT_ID') else 'なし'}")
+logger.debug(f"GOOGLE_CLIENT_SECRET設定: {'あり' if os.getenv('GOOGLE_CLIENT_SECRET') else 'なし'}")
