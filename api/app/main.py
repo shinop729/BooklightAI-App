@@ -368,85 +368,8 @@ async def auth_callback(
         # Heroku環境ではHTTPSが強制されるため、secure=Trueを設定
         is_secure = os.getenv("DYNO") is not None  # Heroku環境ではTrue
         
-        # 完全に簡素化された認証成功ページを返す
-        # 外部リソースを一切使用せず、インラインスタイルとスクリプトのみを使用
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>認証成功</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body {{ font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
-                h1 {{ color: #2a75bb; }}
-                .card {{ background-color: #f5f5f5; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
-                .success {{ color: #5cb85c; }}
-                button {{ background-color: #5cb85c; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
-            </style>
-        </head>
-        <body>
-            <h1>Booklight AI</h1>
-            <div class="card">
-                <h2 class="success">認証成功</h2>
-                <p>ようこそ、{user_data['full_name'] or user_data['username']}さん！</p>
-                <p>このウィンドウは自動的に閉じられます。</p>
-                <p>自動的に閉じられない場合は、下のボタンをクリックしてください。</p>
-                <button onclick="window.close()">ウィンドウを閉じる</button>
-            </div>
-            
-            <script>
-                // 認証情報
-                var authToken = "{access_token}";
-                var userName = "{user_data['username']}";
-                
-                // Chrome拡張機能にメッセージを送信
-                function sendMessageToExtension() {{
-                    if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {{
-                        chrome.runtime.sendMessage({{
-                            action: 'google_auth_success',
-                            token: authToken,
-                            user: userName
-                        }}, function(response) {{
-                            console.log('メッセージ送信結果:', response ? '成功' : '失敗');
-                        }});
-                    }} else {{
-                        // Chrome拡張機能APIが利用できない場合は、windowオブジェクトに保存
-                        window.BOOKLIGHT_AUTH_DATA = {{ 
-                            token: authToken, 
-                            user: userName 
-                        }};
-                        console.log('認証データをwindowオブジェクトに保存しました');
-                    }}
-                }}
-                
-                // 実行
-                try {{
-                    console.log('認証成功ページが読み込まれました');
-                    sendMessageToExtension();
-                    
-                    // 5秒後に自動的にウィンドウを閉じる
-                    setTimeout(function() {{
-                        window.close();
-                    }}, 5000);
-                }} catch (e) {{
-                    console.error('エラー:', e);
-                }}
-            </script>
-        </body>
-        </html>
-        """
-        
-        # ユーザーコンテキストの設定
-        set_user_context(user_id=user_data["username"], email=user_data["email"])
-        
-        # パフォーマンスメトリクスの記録
-        log_performance_metric("auth_success_rate", 1.0)
-        
-        # HTMLレスポンスを返す
-        response = HTMLResponse(content=html_content)
-        
         # クッキーを設定
+        response = Response()
         response.set_cookie(
             key="auth_token",
             value=access_token,
@@ -457,7 +380,19 @@ async def auth_callback(
             path="/"
         )
         
-        return response
+        # 認証成功ページを返す代わりに、専用のサクセスページにリダイレクト
+        # このページはChrome拡張機能用に最適化され、静的ファイルを使用しない
+        success_url = f"/auth/success-minimal?token={access_token}&user={user_data['username']}"
+        
+        # ユーザーコンテキストの設定
+        set_user_context(user_id=user_data["username"], email=user_data["email"])
+        
+        # パフォーマンスメトリクスの記録
+        log_performance_metric("auth_success_rate", 1.0)
+        
+        # リダイレクト
+        return RedirectResponse(url=success_url)
+        
     
     except Exception as e:
         logger.error(f"認証エラー: {e}")
@@ -467,138 +402,127 @@ async def auth_callback(
         # パフォーマンスメトリクスの記録
         log_performance_metric("auth_success_rate", 0.0)
         
-        # エラー時は簡素化されたHTMLエラーページを返す
-        html_error = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>認証エラー</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body {{ font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
-                h1 {{ color: #d9534f; }}
-                .card {{ background-color: #f2dede; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
-                .error {{ color: #a94442; }}
-                button {{ background-color: #5bc0de; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
-                pre {{ text-align: left; background: #f8f8f8; padding: 10px; border-radius: 4px; overflow-x: auto; }}
-            </style>
-        </head>
-        <body>
-            <h1>Booklight AI</h1>
-            <div class="card">
-                <h2 class="error">認証エラー</h2>
-                <p>認証処理中にエラーが発生しました。</p>
-                <pre>{str(e)}</pre>
-                <p>ウィンドウを閉じて、再度お試しください。</p>
-                <button onclick="window.close()">ウィンドウを閉じる</button>
-            </div>
-            
-            <script>
-                // エラー情報をコンソールに出力
-                console.error('認証エラー:', '{str(e)}');
-                
-                // 10秒後に自動的にウィンドウを閉じる
-                setTimeout(function() {{
-                    window.close();
-                }}, 10000);
-                
-                // Chrome拡張機能にエラーメッセージを送信
-                if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {{
-                    chrome.runtime.sendMessage({{
-                        action: 'google_auth_error',
-                        error: '{str(e)}'
-                    }});
-                }}
-            </script>
-        </body>
-        </html>
-        """
-        
-        return HTMLResponse(content=html_error, status_code=500)
-
-# デバッグ用の認証情報エンドポイント
-@app.get("/debug-auth")
-async def debug_auth(request: Request):
-    """認証デバッグ用エンドポイント"""
-    frontend_url = await determine_frontend_url(request)
-    
-    return {
-        "frontend_url": frontend_url,
-        "request_host": str(request.base_url),
-        "headers": {k: v for k, v in request.headers.items()},
-        "app_name": os.getenv("HEROKU_APP_NAME", "未設定"),
-        "is_heroku": os.getenv("DYNO") is not None,
-        "redirect_uri": os.getenv("REDIRECT_URI", "未設定"),
-        "frontend_url_env": os.getenv("FRONTEND_URL", "未設定")
-    }
-
-# 認証成功時のフォールバックページ
-@app.get("/auth/success", response_class=HTMLResponse)
-async def auth_success(token: str = None, user: str = None):
-    """認証成功時のフォールバックページ"""
+        # エラー時は専用のエラーページにリダイレクト
+        error_url = f"/auth/error-minimal?error={str(e)}"
+        return RedirectResponse(url=error_url)
+# 最小限の認証成功ページ（静的ファイルを使用しない）
+@app.get("/auth/success-minimal", response_class=HTMLResponse)
+async def auth_success_minimal(token: str, user: str):
+    """最小限の認証成功ページ（静的ファイルを使用しない）"""
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Booklight AI - 認証成功</title>
+        <title>認証成功</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+            body {{ font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
             h1 {{ color: #2a75bb; }}
             .card {{ background-color: #f5f5f5; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
             .success {{ color: #5cb85c; }}
             button {{ background-color: #5cb85c; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
         </style>
-        <script>
-            // トークンとユーザー情報をChromeに送信
-            function sendAuthInfoToExtension() {{
-                const token = "{token}";
-                const user = "{user}";
-                if (token && user && chrome && chrome.runtime) {{
-                    try {{
-                        chrome.runtime.sendMessage({{
-                            action: 'google_auth_success',
-                            token: token,
-                            user: user
-                        }});
-                        console.log('認証情報を拡張機能に送信しました');
-                    }} catch (e) {{
-                        console.error('拡張機能への送信に失敗しました:', e);
-                    }}
-                }}
-                // 5秒後に自動的にウィンドウを閉じる
-                setTimeout(() => {{
-                    window.close();
-                }}, 5000);
-            }}
-            
-            // ページ読み込み時に実行
-            window.onload = function() {{
-                try {{
-                    sendAuthInfoToExtension();
-                }} catch (e) {{
-                    console.error('認証処理中にエラーが発生しました:', e);
-                }}
-            }};
-        </script>
     </head>
     <body>
         <h1>Booklight AI</h1>
         <div class="card">
             <h2 class="success">認証成功</h2>
-            <p>ようこそ、{user or "ユーザー"}さん！</p>
+            <p>ようこそ、{user}さん！</p>
             <p>このウィンドウは自動的に閉じられます。</p>
             <p>自動的に閉じられない場合は、下のボタンをクリックしてください。</p>
             <button onclick="window.close()">ウィンドウを閉じる</button>
         </div>
+        
+        <script>
+            // 認証情報
+            var authToken = "{token}";
+            var userName = "{user}";
+            
+            // Chrome拡張機能にメッセージを送信
+            function sendMessageToExtension() {{
+                if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {{
+                    chrome.runtime.sendMessage({{
+                        action: 'google_auth_success',
+                        token: authToken,
+                        user: userName
+                    }}, function(response) {{
+                        console.log('メッセージ送信結果:', response ? '成功' : '失敗');
+                    }});
+                }} else {{
+                    // Chrome拡張機能APIが利用できない場合は、windowオブジェクトに保存
+                    window.BOOKLIGHT_AUTH_DATA = {{ 
+                        token: authToken, 
+                        user: userName 
+                    }};
+                    console.log('認証データをwindowオブジェクトに保存しました');
+                }}
+            }}
+            
+            // 実行
+            try {{
+                console.log('認証成功ページが読み込まれました');
+                sendMessageToExtension();
+                
+                // 5秒後に自動的にウィンドウを閉じる
+                setTimeout(function() {{
+                    window.close();
+                }}, 5000);
+            }} catch (e) {{
+                console.error('エラー:', e);
+            }}
+        </script>
     </body>
     </html>
     """
 
-# 残りのコードは以前のmain.pyと同じ
-# （以前のコードをそのままコピー）
-# ... [previous code continues]
-
-# 最後の行は変更なし
-if __name__ == "__main__":
-    import uvicorn
+# 最小限の認証エラーページ（静的ファイルを使用しない）
+@app.get("/auth/error-minimal", response_class=HTMLResponse)
+async def auth_error_minimal(error: str = "不明なエラー"):
+    """最小限の認証エラーページ（静的ファイルを使用しない）"""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>認証エラー</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{ font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+            h1 {{ color: #d9534f; }}
+            .card {{ background-color: #f2dede; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
+            .error {{ color: #a94442; }}
+            button {{ background-color: #5bc0de; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }}
+            pre {{ text-align: left; background: #f8f8f8; padding: 10px; border-radius: 4px; overflow-x: auto; }}
+        </style>
+    </head>
+    <body>
+        <h1>Booklight AI</h1>
+        <div class="card">
+            <h2 class="error">認証エラー</h2>
+            <p>認証処理中にエラーが発生しました。</p>
+            <pre>{error}</pre>
+            <p>ウィンドウを閉じて、再度お試しください。</p>
+            <button onclick="window.close()">ウィンドウを閉じる</button>
+        </div>
+        
+        <script>
+            // エラー情報をコンソールに出力
+            console.error('認証エラー:', '{error}');
+            
+            // Chrome拡張機能にエラーメッセージを送信
+            if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {{
+                chrome.runtime.sendMessage({{
+                    action: 'google_auth_error',
+                    error: '{error}'
+                }});
+            }}
+            
+            // 10秒後に自動的にウィンドウを閉じる
+            setTimeout(function() {{
+                window.close();
+            }}, 10000);
+        </script>
+    </body>
+    </html>
+    """
