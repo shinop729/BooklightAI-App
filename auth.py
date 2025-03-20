@@ -7,6 +7,16 @@ import json
 import requests
 from pathlib import Path
 from dotenv import load_dotenv
+import logging
+
+# ロガーの設定
+logger = logging.getLogger('booklight-auth')
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 # .envファイルを読み込む（存在する場合）
 env_path = Path(__file__).parent / '.env'
@@ -15,25 +25,45 @@ if env_path.exists():
 else:
     load_dotenv()  # Herokuでは環境変数が直接設定されている
 
+# 環境変数のロギング
+logger.debug("=== auth.py の環境変数 ===")
+logger.debug(f"DYNO: {os.getenv('DYNO')}")
+logger.debug(f"HEROKU_APP_NAME: {os.getenv('HEROKU_APP_NAME')}")
+logger.debug(f"CUSTOM_DOMAIN: {os.getenv('CUSTOM_DOMAIN')}")
+logger.debug(f"FRONTEND_URL: {os.getenv('FRONTEND_URL')}")
+logger.debug(f"REDIRECT_URI: {os.getenv('REDIRECT_URI')}")
+logger.debug(f"GOOGLE_CLIENT_ID: {'設定あり' if os.getenv('GOOGLE_CLIENT_ID') else '未設定'}")
+
 # Google OAuth設定
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-# リダイレクトURIの設定（Herokuでは環境変数から取得）
+
+# リダイレクトURIの設定
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 if not REDIRECT_URI:
     # カスタムドメインがある場合（優先）
     custom_domain = os.getenv("CUSTOM_DOMAIN")
     if custom_domain:
         REDIRECT_URI = f"https://{custom_domain}/auth/callback"
-        print(f"カスタムドメインを使用したリダイレクトURI: {REDIRECT_URI}")
+        logger.info(f"カスタムドメインからリダイレクトURIを設定: {REDIRECT_URI}")
     # Herokuアプリ名がある場合
     elif os.getenv("HEROKU_APP_NAME"):
-        REDIRECT_URI = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com/auth/callback"
-        print(f"Heroku URLを使用したリダイレクトURI: {REDIRECT_URI}")
+        app_name = os.getenv("HEROKU_APP_NAME")
+        REDIRECT_URI = f"https://{app_name}.herokuapp.com/auth/callback"
+        logger.info(f"Herokuアプリ名からリダイレクトURIを設定: {REDIRECT_URI}")
     # それ以外の場合はローカル開発用
     else:
-        REDIRECT_URI = "http://localhost:8501/auth/callback"
-        print(f"ローカル開発用リダイレクトURI: {REDIRECT_URI}")
+        REDIRECT_URI = "http://localhost:8501/"
+        logger.info(f"ローカル開発用リダイレクトURIを設定: {REDIRECT_URI}")
+
+# リダイレクトURIをログに出力
+logger.info(f"最終的なリダイレクトURI: {REDIRECT_URI}")
+
+SCOPES = [
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "openid"
+]
 
 # ユーザーデータ保存ディレクトリ
 USER_DATA_DIR = Path("user_data")
@@ -179,9 +209,9 @@ def handle_auth_flow():
                 user_id = save_user_data(user_info)
                 
                 # セッション処理のログ
-                print(f"認証成功: ユーザーID={user_id}, セッション設定完了")
-                print(f"セッション状態: {list(st.session_state.keys())}")
-                print(f"ユーザー情報: {user_info.get('name')} ({user_info.get('email')})")
+                logger.info(f"認証成功: ユーザーID={user_id}, セッション設定完了")
+                logger.info(f"セッション状態: {list(st.session_state.keys())}")
+                logger.info(f"ユーザー情報: {user_info.get('name')} ({user_info.get('email')})")
                 
                 # URLパラメータをクリア
                 st.query_params.clear()
@@ -189,8 +219,8 @@ def handle_auth_flow():
                 return True
         except Exception as e:
             import traceback
-            print(f"認証エラー詳細: {str(e)}")
-            print(traceback.format_exc())
+            logger.error(f"認証エラー詳細: {str(e)}")
+            logger.error(traceback.format_exc())
             st.error(f"認証エラー: {str(e)}")
             st.error(f"詳細エラー: {traceback.format_exc()}")
     
@@ -207,17 +237,3 @@ def logout():
         del st.session_state.user_info
     if "credentials" in st.session_state:
         del st.session_state.credentials
-
-# ログ設定
-import logging
-logger = logging.getLogger('google-auth')
-logger.setLevel(logging.DEBUG)
-
-# 環境変数の状態をログに出力
-logger.debug("OAuth関連の環境変数:")
-logger.debug(f"REDIRECT_URI: {os.getenv('REDIRECT_URI')}")
-logger.debug(f"FRONTEND_URL: {os.getenv('FRONTEND_URL')}")
-logger.debug(f"CUSTOM_DOMAIN: {os.getenv('CUSTOM_DOMAIN')}")
-logger.debug(f"HEROKU_APP_NAME: {os.getenv('HEROKU_APP_NAME')}")
-logger.debug(f"GOOGLE_CLIENT_ID設定: {'あり' if os.getenv('GOOGLE_CLIENT_ID') else 'なし'}")
-logger.debug(f"GOOGLE_CLIENT_SECRET設定: {'あり' if os.getenv('GOOGLE_CLIENT_SECRET') else 'なし'}")

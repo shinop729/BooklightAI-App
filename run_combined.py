@@ -43,19 +43,6 @@ def run_fastapi():
 def run_streamlit():
     time.sleep(5)  # FastAPIの起動を待つ
     
-    # ルートディレクトリに戻る（重要な修正点）
-    os.chdir('..')
-    
-    # デバッグ情報
-    current_dir = os.getcwd()
-    print(f"現在のディレクトリ: {current_dir}")
-    print("ディレクトリ内のファイル:")
-    for file in os.listdir(current_dir):
-        print(f" - {file}")
-    
-    def run_streamlit():
-    time.sleep(5)  # FastAPIの起動を待つ
-    
     # ルートディレクトリに戻る
     os.chdir('..')
     

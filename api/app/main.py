@@ -212,10 +212,22 @@ async def login_via_google(request: Request):
     custom_domain = os.getenv("CUSTOM_DOMAIN")
     if custom_domain:
         redirect_uri = f"https://{custom_domain}/auth/callback"
+        logger.info(f"カスタムドメインからリダイレクトURI設定: {redirect_uri}")
+    elif os.getenv("HEROKU_APP_NAME"):
+        # Herokuアプリ名がある場合
+        app_name = os.getenv("HEROKU_APP_NAME")
+        redirect_uri = f"https://{app_name}.herokuapp.com/auth/callback"
+        logger.info(f"Herokuアプリ名からリダイレクトURI設定: {redirect_uri}")
     else:
-        redirect_uri = os.getenv("REDIRECT_URI", "https://booklight-ai.com/auth/callback")
+        # 環境変数のREDIRECT_URIを使用
+        redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
+        logger.info(f"環境変数からリダイレクトURI設定: {redirect_uri}")
     
     logger.info(f"Google認証リダイレクトURI: {redirect_uri}")
+    # 追加デバッグ情報
+    logger.info(f"リクエストベースURL: {request.base_url}")
+    logger.info(f"環境変数状態: DYNO={os.getenv('DYNO')}, HEROKU_APP_NAME={os.getenv('HEROKU_APP_NAME')}, CUSTOM_DOMAIN={os.getenv('CUSTOM_DOMAIN')}")
+    
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @app.get("/auth/callback")
@@ -227,6 +239,10 @@ async def auth_callback(
 ):
     """Google OAuth認証のコールバックエンドポイント（DB版）"""
     try:
+        logger.info(f"OAuth コールバック受信: {request.url}")
+        logger.info(f"クエリパラメータ: {request.query_params}")
+        logger.info(f"ヘッダー: Host={request.headers.get('host')}, Origin={request.headers.get('origin')}")
+        
         token = await oauth.google.authorize_access_token(request)
         user_info = await oauth.google.parse_id_token(request, token)
         
@@ -299,6 +315,8 @@ async def auth_callback(
     
     except Exception as e:
         logger.error(f"認証エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
         
         # パフォーマンスメトリクスの記録
         log_performance_metric("auth_success_rate", 0.0)
