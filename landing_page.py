@@ -84,29 +84,11 @@ def main():
     # デバッグ情報の詳細な出力
     print("全クエリパラメータ:", dict(st.query_params))
     
-    # URLからパラメータを直接取得
-    from urllib.parse import urlparse, parse_qs
-    
-    current_url = st.experimental_get_query_params()
-    print("st.experimental_get_query_params():", current_url)
-    
-    # Streamlitの標準的なクエリパラメータ取得方法
+    # クエリパラメータの取得は st.query_params のみを使用
     code = st.query_params.get("code")
     state = st.query_params.get("state")
     
     print(f"デバッグ - code: {code}, state: {state}")
-    
-    # URLから直接パラメータを取得する代替方法
-    if not code:
-        try:
-            from urllib.parse import urlparse, parse_qs
-            parsed_url = urlparse(st.experimental_get_query_params().get('url', [''])[0])
-            query_params = parse_qs(parsed_url.query)
-            code = query_params.get('code', [None])[0]
-            state = query_params.get('state', [None])[0]
-            print(f"URLパース後 - code: {code}, state: {state}")
-        except Exception as e:
-            print(f"URLパース中のエラー: {e}")
     
     # 認証フローの処理
     try:
