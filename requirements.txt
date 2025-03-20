@@ -21,9 +21,11 @@ sentry-sdk==1.32.0
 streamlit-tags==1.2.8
 langchain==0.1.12
 langchain-community>=0.0.10
+langchain-openai>=0.0.2
 chromadb==0.4.24
 openai==1.14.2
 tiktoken==0.6.0
+rank_bm25==0.2.2
 google-auth-oauthlib==1.2.0
 google-auth==2.28.1
 google-api-python-client==2.120.0
