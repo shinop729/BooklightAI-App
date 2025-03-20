@@ -76,7 +76,8 @@ def run_streamlit():
         print(f"ローカル環境でStreamlitを起動: ポート {port}")
     
     try:
-        subprocess.run(["streamlit", "run", "Home.py", "--server.port", port, "--server.address", "0.0.0.0"])
+        # ランディングページをエントリーポイントとして設定
+        subprocess.run(["streamlit", "run", "landing_page.py", "--server.port", port, "--server.address", "0.0.0.0"])
     except Exception as e:
         print(f"Streamlit起動エラー: {e}")
 

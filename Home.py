@@ -215,6 +215,11 @@ def proxy_api_request():
 def main():
     setup_app()
     
+    # 認証チェック - 未ログインの場合はエラーメッセージを表示
+    if not auth.is_user_authenticated():
+        st.warning("このページにアクセスするにはログインが必要です。")
+        return
+    
     # APIリクエストをプロキシ
     api_response = proxy_api_request()
     if api_response:

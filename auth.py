@@ -202,6 +202,11 @@ def handle_auth_flow():
     
     return False
 
+def redirect_if_authenticated():
+    """ログイン済みの場合はホームページにリダイレクト"""
+    if is_user_authenticated():
+        st.switch_page("Home.py")
+
 def logout():
     """ログアウト処理"""
     if "user_info" in st.session_state:
