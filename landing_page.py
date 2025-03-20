@@ -81,16 +81,35 @@ def main():
     # ユーザーディレクトリの作成
     auth.create_user_directories()
     
-    # より詳細なデバッグ情報の追加
-    print("クエリパラメータ:", st.query_params)
-    print("認証コード:", st.query_params.get("code"))
-    print("ステート:", st.query_params.get("state"))
+    # デバッグ情報の詳細な出力
+    print("全クエリパラメータ:", dict(st.query_params))
+    
+    # URLからパラメータを直接取得
+    from urllib.parse import urlparse, parse_qs
+    
+    current_url = st.experimental_get_query_params()
+    print("st.experimental_get_query_params():", current_url)
+    
+    # Streamlitの標準的なクエリパラメータ取得方法
+    code = st.query_params.get("code")
+    state = st.query_params.get("state")
+    
+    print(f"デバッグ - code: {code}, state: {state}")
+    
+    # URLから直接パラメータを取得する代替方法
+    if not code:
+        try:
+            from urllib.parse import urlparse, parse_qs
+            parsed_url = urlparse(st.experimental_get_query_params().get('url', [''])[0])
+            query_params = parse_qs(parsed_url.query)
+            code = query_params.get('code', [None])[0]
+            state = query_params.get('state', [None])[0]
+            print(f"URLパース後 - code: {code}, state: {state}")
+        except Exception as e:
+            print(f"URLパース中のエラー: {e}")
     
     # 認証フローの処理
     try:
-        # クエリパラメータの存在を確認
-        code = st.query_params.get("code")
-        state = st.query_params.get("state")
         
         if code and state:
             st.info("認証情報を処理中です...")

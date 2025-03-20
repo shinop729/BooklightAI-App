@@ -195,9 +195,22 @@ def handle_auth_flow():
     code = st.query_params.get("code", None)
     state = st.query_params.get("state", None)
     
-    # デバッグログの追加
+    # 追加のデバッグログ
     logger.info(f"認証コールバック処理開始: code={bool(code)}, state={bool(state)}")
     logger.debug(f"クエリパラメータ: {dict(st.query_params)}")
+    
+    # 代替のパラメータ取得方法
+    if not code:
+        try:
+            from urllib.parse import urlparse, parse_qs
+            current_url = st.experimental_get_query_params().get('url', [''])[0]
+            parsed_url = urlparse(current_url)
+            query_params = parse_qs(parsed_url.query)
+            code = query_params.get('code', [None])[0]
+            state = query_params.get('state', [None])[0]
+            logger.info(f"URLパース後 - code: {bool(code)}, state: {bool(state)}")
+        except Exception as e:
+            logger.error(f"URLパース中のエラー: {e}")
     
     if code:
         try:
