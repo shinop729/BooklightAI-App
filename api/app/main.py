@@ -368,17 +368,17 @@ async def auth_callback(
         # Heroku環境ではHTTPSが強制されるため、secure=Trueを設定
         is_secure = os.getenv("DYNO") is not None  # Heroku環境ではTrue
         
-        # 認証成功ページを返す（リダイレクトではなく直接HTMLを返す）
-        # JavaScriptモジュールではなく通常のJavaScriptとして読み込む
+        # 完全に簡素化された認証成功ページを返す
+        # 外部リソースを一切使用せず、インラインスタイルとスクリプトのみを使用
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Booklight AI - 認証成功</title>
+            <title>認証成功</title>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+                body {{ font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
                 h1 {{ color: #2a75bb; }}
                 .card {{ background-color: #f5f5f5; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
                 .success {{ color: #5cb85c; }}
@@ -395,48 +395,43 @@ async def auth_callback(
                 <button onclick="window.close()">ウィンドウを閉じる</button>
             </div>
             
-            <script type="text/javascript">
-                // トークンとユーザー情報をChromeに送信
-                function sendAuthInfoToExtension() {{
-                    const token = "{access_token}";
-                    const user = "{user_data['username']}";
-                    if (token && user && window.chrome && window.chrome.runtime) {{
-                        try {{
-                            window.chrome.runtime.sendMessage({{
-                                action: 'google_auth_success',
-                                token: token,
-                                user: user
-                            }}, function(response) {{
-                                console.log('認証情報送信結果:', response);
-                            }});
-                            console.log('認証情報を拡張機能に送信しました');
-                        }} catch (e) {{
-                            console.error('拡張機能への送信に失敗しました:', e);
-                        }}
+            <script>
+                // 認証情報
+                var authToken = "{access_token}";
+                var userName = "{user_data['username']}";
+                
+                // Chrome拡張機能にメッセージを送信
+                function sendMessageToExtension() {{
+                    if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {{
+                        chrome.runtime.sendMessage({{
+                            action: 'google_auth_success',
+                            token: authToken,
+                            user: userName
+                        }}, function(response) {{
+                            console.log('メッセージ送信結果:', response ? '成功' : '失敗');
+                        }});
                     }} else {{
-                        console.log('Chrome拡張機能APIが利用できないか、認証情報が不足しています');
-                        console.log('Token存在:', !!token);
-                        console.log('User存在:', !!user);
-                        console.log('Chrome API存在:', !!(window.chrome && window.chrome.runtime));
+                        // Chrome拡張機能APIが利用できない場合は、windowオブジェクトに保存
+                        window.BOOKLIGHT_AUTH_DATA = {{ 
+                            token: authToken, 
+                            user: userName 
+                        }};
+                        console.log('認証データをwindowオブジェクトに保存しました');
                     }}
+                }}
+                
+                // 実行
+                try {{
+                    console.log('認証成功ページが読み込まれました');
+                    sendMessageToExtension();
                     
                     // 5秒後に自動的にウィンドウを閉じる
                     setTimeout(function() {{
                         window.close();
                     }}, 5000);
+                }} catch (e) {{
+                    console.error('エラー:', e);
                 }}
-                
-                // ページ読み込み時に実行
-                window.addEventListener('DOMContentLoaded', function() {{
-                    try {{
-                        console.log('認証成功ページが読み込まれました');
-                        setTimeout(function() {{
-                            sendAuthInfoToExtension();
-                        }}, 500);
-                    }} catch (e) {{
-                        console.error('認証処理中にエラーが発生しました:', e);
-                    }}
-                }});
             </script>
         </body>
         </html>
@@ -472,16 +467,16 @@ async def auth_callback(
         # パフォーマンスメトリクスの記録
         log_performance_metric("auth_success_rate", 0.0)
         
-        # エラー時はHTMLエラーページを返す
+        # エラー時は簡素化されたHTMLエラーページを返す
         html_error = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Booklight AI - 認証エラー</title>
+            <title>認証エラー</title>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body {{ font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
+                body {{ font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; text-align: center; }}
                 h1 {{ color: #d9534f; }}
                 .card {{ background-color: #f2dede; border-radius: 8px; padding: 20px; margin-bottom: 20px; }}
                 .error {{ color: #a94442; }}
@@ -499,14 +494,22 @@ async def auth_callback(
                 <button onclick="window.close()">ウィンドウを閉じる</button>
             </div>
             
-            <script type="text/javascript">
+            <script>
                 // エラー情報をコンソールに出力
-                console.error('認証エラー:', {str(e)});
+                console.error('認証エラー:', '{str(e)}');
                 
                 // 10秒後に自動的にウィンドウを閉じる
                 setTimeout(function() {{
                     window.close();
                 }}, 10000);
+                
+                // Chrome拡張機能にエラーメッセージを送信
+                if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {{
+                    chrome.runtime.sendMessage({{
+                        action: 'google_auth_error',
+                        error: '{str(e)}'
+                    }});
+                }}
             </script>
         </body>
         </html>
