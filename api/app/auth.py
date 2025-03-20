@@ -29,19 +29,24 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
-# リダイレクトURIの設定（Herokuでは環境変数から取得）
-REDIRECT_URI = os.getenv("REDIRECT_URI")
-if not REDIRECT_URI:
-    # カスタムドメインがある場合（優先）
-    custom_domain = os.getenv("CUSTOM_DOMAIN")
-    if custom_domain:
-        REDIRECT_URI = f"https://{custom_domain}/auth/callback"
-    # Herokuアプリ名がある場合
-    elif os.getenv("HEROKU_APP_NAME"):
-        REDIRECT_URI = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com/auth/callback"
-    # それ以外の場合はローカル開発用
-    else:
-        REDIRECT_URI = "http://localhost:8000/auth/callback"
+# リダイレクトURIの設定
+# カスタムドメインが最優先
+custom_domain = os.getenv("CUSTOM_DOMAIN")
+if custom_domain:
+    REDIRECT_URI = f"https://{custom_domain}/auth/callback"
+    logging.getLogger("booklight-api").info(f"カスタムドメインからリダイレクトURIを設定: {REDIRECT_URI}")
+# 明示的に設定されたリダイレクトURIを次に優先
+elif os.getenv("REDIRECT_URI"):
+    REDIRECT_URI = os.getenv("REDIRECT_URI")
+    logging.getLogger("booklight-api").info(f"環境変数からリダイレクトURIを設定: {REDIRECT_URI}")
+# Herokuアプリ名がある場合
+elif os.getenv("HEROKU_APP_NAME"):
+    REDIRECT_URI = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com/auth/callback"
+    logging.getLogger("booklight-api").info(f"Herokuアプリ名からリダイレクトURIを設定: {REDIRECT_URI}")
+# それ以外の場合はローカル開発用
+else:
+    REDIRECT_URI = "http://localhost:8000/auth/callback"
+    logging.getLogger("booklight-api").info(f"デフォルトのリダイレクトURIを設定: {REDIRECT_URI}")
 
 # リダイレクトURIをログに出力（デバッグ用）
 import logging

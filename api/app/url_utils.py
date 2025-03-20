@@ -54,6 +54,19 @@ async def determine_frontend_url(request: Request) -> str:
     Returns:
         str: 検出されたフロントエンドURL
     """
+    # 戦略0: カスタムドメインを最優先
+    custom_domain = os.getenv("CUSTOM_DOMAIN")
+    if custom_domain:
+        custom_url = f"https://{custom_domain}"
+        logger.info(f"フロントエンドURL（カスタムドメインから）: {custom_url}")
+        return sanitize_url(custom_url)
+    
+    # 戦略1: 環境変数からの設定値
+    frontend_url = os.getenv('FRONTEND_URL')
+    if frontend_url and validate_url(frontend_url):
+        logger.info(f"フロントエンドURL（環境変数から）: {frontend_url}")
+        return sanitize_url(frontend_url)
+    
     # Herokuの環境変数を確認
     if os.getenv("DYNO"):
         # Herokuのアプリ名を直接使用（APP_NAMEも確認）
@@ -62,12 +75,6 @@ async def determine_frontend_url(request: Request) -> str:
             heroku_url = f"https://{app_name}.herokuapp.com"
             logger.info(f"フロントエンドURL（Herokuアプリ名から）: {heroku_url}")
             return sanitize_url(heroku_url)
-    
-    # 戦略1: 環境変数からの設定値
-    frontend_url = os.getenv('FRONTEND_URL')
-    if frontend_url and validate_url(frontend_url):
-        logger.info(f"フロントエンドURL（環境変数から）: {frontend_url}")
-        return sanitize_url(frontend_url)
     
     # 戦略2: リクエストのオリジンヘッダー
     origin = request.headers.get("origin")

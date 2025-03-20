@@ -282,20 +282,24 @@ async def root():
 @track_transaction("google_oauth_redirect")
 async def login_via_google(request: Request):
     """Google OAuth認証のリダイレクトエンドポイント"""
-    # カスタムドメインを優先的に使用
+    # カスタムドメインが最優先
     custom_domain = os.getenv("CUSTOM_DOMAIN")
     if custom_domain:
         redirect_uri = f"https://{custom_domain}/auth/callback"
         logger.info(f"カスタムドメインからリダイレクトURI設定: {redirect_uri}")
+    # 明示的に設定されたリダイレクトURIを次に優先
+    elif os.getenv("REDIRECT_URI"):
+        redirect_uri = os.getenv("REDIRECT_URI")
+        logger.info(f"環境変数からリダイレクトURI設定: {redirect_uri}")
+    # Herokuアプリ名がある場合
     elif os.getenv("HEROKU_APP_NAME"):
-        # Herokuアプリ名がある場合
         app_name = os.getenv("HEROKU_APP_NAME")
         redirect_uri = f"https://{app_name}.herokuapp.com/auth/callback"
         logger.info(f"Herokuアプリ名からリダイレクトURI設定: {redirect_uri}")
+    # それ以外の場合はローカル開発用
     else:
-        # 環境変数のREDIRECT_URIを使用
-        redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
-        logger.info(f"環境変数からリダイレクトURI設定: {redirect_uri}")
+        redirect_uri = "http://localhost:8000/auth/callback"
+        logger.info(f"デフォルトのリダイレクトURI設定: {redirect_uri}")
     
     logger.info(f"Google認証リダイレクトURI: {redirect_uri}")
     # 追加デバッグ情報
