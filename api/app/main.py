@@ -1040,25 +1040,40 @@ async def api_get_user_stats(
 ):
     """ユーザーの統計情報を取得するエンドポイント"""
     try:
+        # デバッグ情報をログに出力
+        logger.info(f"ユーザー統計情報取得リクエスト: ユーザーID={current_user.id}")
+        
         # 書籍数
         book_count = db.query(models.Book).filter(
             models.Book.user_id == current_user.id
         ).count()
+        logger.info(f"書籍数: {book_count}")
         
         # ハイライト数
         highlight_count = db.query(models.Highlight).filter(
             models.Highlight.user_id == current_user.id
         ).count()
+        logger.info(f"ハイライト数: {highlight_count}")
         
         # 最近の検索キーワード（最大5件）
-        recent_searches = db.query(models.SearchHistory).filter(
-            models.SearchHistory.user_id == current_user.id
-        ).order_by(models.SearchHistory.created_at.desc()).limit(5).all()
+        try:
+            recent_searches = db.query(models.SearchHistory).filter(
+                models.SearchHistory.user_id == current_user.id
+            ).order_by(models.SearchHistory.created_at.desc()).limit(5).all()
+            logger.info(f"検索履歴取得成功: {len(recent_searches)}件")
+        except Exception as search_error:
+            logger.error(f"検索履歴取得エラー: {search_error}")
+            recent_searches = []
         
         # 最近のチャット（最大3件）
-        recent_chats = db.query(models.ChatSession).filter(
-            models.ChatSession.user_id == current_user.id
-        ).order_by(models.ChatSession.updated_at.desc()).limit(3).all()
+        try:
+            recent_chats = db.query(models.ChatSession).filter(
+                models.ChatSession.user_id == current_user.id
+            ).order_by(models.ChatSession.updated_at.desc()).limit(3).all()
+            logger.info(f"チャット履歴取得成功: {len(recent_chats)}件")
+        except Exception as chat_error:
+            logger.error(f"チャット履歴取得エラー: {chat_error}")
+            recent_chats = []
         
         return {
             "success": True,
@@ -1082,8 +1097,541 @@ async def api_get_user_stats(
             }
         }
     except Exception as e:
+        import traceback
         logger.error(f"ユーザー統計情報取得エラー: {e}")
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        
+        # エラーレスポンスをJSONで返す（HTTPExceptionではなく）
+        return {
+            "success": False,
+            "error": "統計情報取得中にエラーが発生しました",
+            "message": str(e),
+            "data": {
+                "bookCount": 0,
+                "highlightCount": 0,
+                "recentSearches": [],
+                "recentChats": []
+            }
+        }
+
+# 書籍関連エンドポイント
+from math import ceil
+from sqlalchemy import asc, desc, or_
+
+# 書籍一覧取得エンドポイント
+@app.get("/api/books")
+async def get_books(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=100),
+    sort_by: str = Query("title", regex="^(title|author|highlightCount)$"),
+    sort_order: str = Query("asc", regex="^(asc|desc)$"),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """書籍一覧を取得するエンドポイント"""
+    try:
+        # 基本クエリ（ユーザーIDでフィルタリング）
+        query = db.query(models.Book).filter(models.Book.user_id == current_user.id)
+        
+        # 検索条件の適用
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    models.Book.title.ilike(search_term),
+                    models.Book.author.ilike(search_term)
+                )
+            )
+        
+        # 総数の取得
+        total = query.count()
+        
+        # ソート条件の適用
+        if sort_by == "title":
+            query = query.order_by(asc(models.Book.title) if sort_order == "asc" else desc(models.Book.title))
+        elif sort_by == "author":
+            query = query.order_by(asc(models.Book.author) if sort_order == "asc" else desc(models.Book.author))
+        elif sort_by == "highlightCount":
+            # ハイライト数でソート（サブクエリを使用）
+            highlight_count = (
+                db.query(func.count(models.Highlight.id))
+                .filter(models.Highlight.book_id == models.Book.id)
+                .scalar_subquery()
+            )
+            query = query.order_by(asc(highlight_count) if sort_order == "asc" else desc(highlight_count))
+        
+        # ページネーション
+        total_pages = ceil(total / page_size)
+        query = query.offset((page - 1) * page_size).limit(page_size)
+        
+        # 結果の取得
+        books = query.all()
+        
+        # レスポンスの作成
+        book_list = []
+        for book in books:
+            # ハイライト数を取得
+            highlight_count = db.query(models.Highlight).filter(
+                models.Highlight.book_id == book.id
+            ).count()
+            
+            book_list.append({
+                "id": book.id,
+                "title": book.title,
+                "author": book.author,
+                "highlightCount": highlight_count,
+                "coverUrl": None,  # 表紙画像URLは別途取得
+                "createdAt": book.created_at.isoformat() if hasattr(book, 'created_at') else None
+            })
+        
+        return {
+            "success": True,
+            "data": {
+                "items": book_list,
+                "total": total,
+                "total_pages": total_pages,
+                "page": page,
+                "page_size": page_size
+            }
+        }
+    except Exception as e:
+        logger.error(f"書籍一覧取得エラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="統計情報取得中にエラーが発生しました"
+            detail="書籍一覧の取得中にエラーが発生しました"
+        )
+
+# 特定書籍取得エンドポイント
+@app.get("/api/books/{title}")
+async def get_book_by_title(
+    title: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """タイトルで書籍を取得するエンドポイント"""
+    try:
+        # 書籍の取得（ユーザーIDでフィルタリング）
+        book = db.query(models.Book).filter(
+            models.Book.title == title,
+            models.Book.user_id == current_user.id
+        ).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定されたタイトルの書籍が見つかりません"
+            )
+        
+        # ハイライト数を取得
+        highlight_count = db.query(models.Highlight).filter(
+            models.Highlight.book_id == book.id
+        ).count()
+        
+        return {
+            "success": True,
+            "data": {
+                "id": book.id,
+                "title": book.title,
+                "author": book.author,
+                "highlightCount": highlight_count,
+                "coverUrl": None,  # 表紙画像URLは別途取得
+                "createdAt": book.created_at.isoformat() if hasattr(book, 'created_at') else None
+            }
+        }
+    except HTTPException as e:
+        # HTTPExceptionはそのまま再送
+        raise e
+    except Exception as e:
+        logger.error(f"書籍取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="書籍の取得中にエラーが発生しました"
+        )
+
+# 書籍ハイライト取得エンドポイント
+@app.get("/api/books/{book_id}/highlights")
+async def get_book_highlights(
+    book_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """書籍のハイライト一覧を取得するエンドポイント"""
+    try:
+        # 書籍の存在確認（ユーザーIDでフィルタリング）
+        book = db.query(models.Book).filter(
+            models.Book.id == book_id,
+            models.Book.user_id == current_user.id
+        ).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定されたIDの書籍が見つかりません"
+            )
+        
+        # ハイライトの取得
+        highlights = db.query(models.Highlight).filter(
+            models.Highlight.book_id == book_id,
+            models.Highlight.user_id == current_user.id
+        ).all()
+        
+        # レスポンスの作成
+        highlight_list = []
+        for highlight in highlights:
+            highlight_list.append({
+                "id": highlight.id,
+                "bookId": highlight.book_id,
+                "content": highlight.content,
+                "location": highlight.location,
+                "createdAt": highlight.created_at.isoformat() if highlight.created_at else None
+            })
+        
+        return {
+            "success": True,
+            "data": highlight_list
+        }
+    except HTTPException as e:
+        # HTTPExceptionはそのまま再送
+        raise e
+    except Exception as e:
+        logger.error(f"ハイライト取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ハイライトの取得中にエラーが発生しました"
+        )
+
+# 書籍表紙画像取得エンドポイント
+@app.get("/api/books/cover")
+async def get_book_cover(
+    title: str,
+    author: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """書籍の表紙画像URLを取得するエンドポイント"""
+    try:
+        # 表紙画像URLの生成（実際にはGoogle Books APIなどを使用）
+        # ここでは簡易的な実装として、ダミーURLを返す
+        cover_url = f"https://via.placeholder.com/128x192.png?text={title}"
+        
+        return {
+            "success": True,
+            "data": {
+                "coverUrl": cover_url
+            }
+        }
+    except Exception as e:
+        logger.error(f"表紙画像取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="表紙画像の取得中にエラーが発生しました"
+        )
+
+# 検索関連エンドポイント
+from typing import List as TypeList
+
+class SearchRequest(BaseModel):
+    """検索リクエストモデル"""
+    keywords: TypeList[str]
+    hybrid_alpha: float = 0.7  # ベクトル検索の重み（0-1）
+    book_weight: float = 0.3  # 書籍情報の重み（0-1）
+    use_expanded: bool = True  # 拡張検索の使用
+    limit: int = 20  # 結果の最大数
+
+@app.post("/api/search")
+async def search_highlights(
+    request: SearchRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ハイライトを検索するエンドポイント"""
+    try:
+        if not request.keywords:
+            return {
+                "success": True,
+                "data": {
+                    "results": []
+                }
+            }
+        
+        # 検索履歴の保存
+        search_query = " ".join(request.keywords)
+        search_history = models.SearchHistory(
+            query=search_query,
+            user_id=current_user.id
+        )
+        db.add(search_history)
+        db.commit()
+        
+        # 簡易的な検索実装（実際にはベクトル検索などを使用）
+        # ここでは単純なキーワードマッチングを行う
+        results = []
+        for keyword in request.keywords:
+            search_term = f"%{keyword}%"
+            
+            # ハイライトの検索
+            highlights = db.query(models.Highlight).join(
+                models.Book, models.Highlight.book_id == models.Book.id
+            ).filter(
+                models.Highlight.user_id == current_user.id,
+                models.Highlight.content.ilike(search_term)
+            ).limit(request.limit).all()
+            
+            for highlight in highlights:
+                # 書籍情報の取得
+                book = db.query(models.Book).filter(
+                    models.Book.id == highlight.book_id
+                ).first()
+                
+                if book:
+                    results.append({
+                        "id": highlight.id,
+                        "content": highlight.content,
+                        "score": 0.8,  # ダミースコア
+                        "metadata": {
+                            "book_id": book.id,
+                            "title": book.title,
+                            "author": book.author,
+                            "location": highlight.location
+                        }
+                    })
+        
+        # 重複を除去
+        unique_results = []
+        seen_ids = set()
+        for result in results:
+            if result["id"] not in seen_ids:
+                seen_ids.add(result["id"])
+                unique_results.append(result)
+        
+        return {
+            "success": True,
+            "data": {
+                "results": unique_results
+            }
+        }
+    except Exception as e:
+        logger.error(f"検索エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="検索中にエラーが発生しました"
+        )
+
+# チャット関連エンドポイント
+class ChatMessage(BaseModel):
+    """チャットメッセージモデル"""
+    role: str  # 'system', 'user', 'assistant'
+    content: str
+
+class ChatRequest(BaseModel):
+    """チャットリクエストモデル"""
+    messages: TypeList[ChatMessage]
+    stream: bool = False  # ストリーミングレスポンスを使用するかどうか
+    use_sources: bool = True  # ソース情報を使用するかどうか
+
+@app.post("/api/chat")
+async def chat_with_ai(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """AIとチャットするエンドポイント"""
+    try:
+        # チャットセッションの作成または取得
+        # 実際の実装では、セッションIDをリクエストから受け取るか、新しいセッションを作成する
+        session = db.query(models.ChatSession).filter(
+            models.ChatSession.user_id == current_user.id
+        ).order_by(models.ChatSession.updated_at.desc()).first()
+        
+        if not session:
+            # 新しいセッションを作成
+            session = models.ChatSession(
+                title="新しい会話",
+                user_id=current_user.id
+            )
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+        
+        # ユーザーメッセージの保存
+        user_messages = [msg for msg in request.messages if msg.role == "user"]
+        if user_messages:
+            last_user_message = user_messages[-1]
+            db_message = models.ChatMessage(
+                content=last_user_message.content,
+                role="user",
+                session_id=session.id
+            )
+            db.add(db_message)
+            db.commit()
+        
+        # 簡易的なAI応答の生成（実際にはOpenAI APIなどを使用）
+        # ここではダミーの応答を返す
+        ai_response = "申し訳ありませんが、現在AIチャット機能は実装中です。もう少しお待ちください。"
+        
+        # AIメッセージの保存
+        db_message = models.ChatMessage(
+            content=ai_response,
+            role="assistant",
+            session_id=session.id
+        )
+        db.add(db_message)
+        db.commit()
+        
+        # セッションの更新日時を更新
+        session.updated_at = datetime.utcnow()
+        db.commit()
+        
+        # ストリーミングレスポンスの場合
+        if request.stream:
+            # 実際の実装ではStreamingResponseを使用
+            # ここでは簡易的に通常のレスポンスを返す
+            return {
+                "success": True,
+                "data": {
+                    "content": ai_response,
+                    "role": "assistant"
+                }
+            }
+        
+        return {
+            "success": True,
+            "data": {
+                "content": ai_response,
+                "role": "assistant"
+            }
+        }
+    except Exception as e:
+        logger.error(f"チャットエラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="チャット中にエラーが発生しました"
+        )
+
+# ファイルアップロード関連エンドポイント
+from fastapi import File, UploadFile
+import csv
+import io
+
+@app.post("/api/upload")
+async def upload_highlights(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ハイライトCSVファイルをアップロードするエンドポイント"""
+    try:
+        # ファイル形式の検証
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CSVファイルのみアップロード可能です"
+            )
+        
+        # ファイルの読み込み
+        contents = await file.read()
+        
+        # CSVの解析
+        csv_text = contents.decode('utf-8')
+        csv_reader = csv.reader(io.StringIO(csv_text))
+        
+        # ヘッダー行の取得
+        headers = next(csv_reader, None)
+        if not headers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CSVファイルが空です"
+            )
+        
+        # ヘッダーの検証
+        required_headers = ['Title', 'Author', 'Highlight', 'Location']
+        if not all(header in headers for header in required_headers):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"CSVファイルに必要なヘッダーがありません。必要なヘッダー: {', '.join(required_headers)}"
+            )
+        
+        # ヘッダーのインデックスを取得
+        title_idx = headers.index('Title')
+        author_idx = headers.index('Author')
+        highlight_idx = headers.index('Highlight')
+        location_idx = headers.index('Location')
+        
+        # データの処理
+        book_count = 0
+        highlight_count = 0
+        books = {}  # 書籍の重複を避けるための辞書
+        
+        for row in csv_reader:
+            if len(row) <= max(title_idx, author_idx, highlight_idx, location_idx):
+                continue  # 不完全な行はスキップ
+            
+            title = row[title_idx].strip()
+            author = row[author_idx].strip()
+            highlight_text = row[highlight_idx].strip()
+            location = row[location_idx].strip()
+            
+            if not title or not author or not highlight_text:
+                continue  # 必須フィールドが空の行はスキップ
+            
+            # 書籍の取得または作成
+            book_key = f"{title}|{author}"
+            if book_key not in books:
+                # データベースで既存の書籍を検索
+                book = db.query(models.Book).filter(
+                    models.Book.title == title,
+                    models.Book.author == author,
+                    models.Book.user_id == current_user.id
+                ).first()
+                
+                if not book:
+                    # 新しい書籍を作成
+                    book = models.Book(
+                        title=title,
+                        author=author,
+                        user_id=current_user.id
+                    )
+                    db.add(book)
+                    db.commit()
+                    db.refresh(book)
+                    book_count += 1
+                
+                books[book_key] = book
+            
+            # 書籍の取得
+            book = books[book_key]
+            
+            # ハイライトの作成
+            highlight = models.Highlight(
+                content=highlight_text,
+                location=location,
+                user_id=current_user.id,
+                book_id=book.id
+            )
+            db.add(highlight)
+            highlight_count += 1
+        
+        # 一括コミット
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"{book_count}冊の書籍から{highlight_count}件のハイライトを取り込みました。",
+            "bookCount": book_count,
+            "highlightCount": highlight_count
+        }
+    except HTTPException as e:
+        # HTTPExceptionはそのまま再送
+        raise e
+    except Exception as e:
+        logger.error(f"アップロードエラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ファイルのアップロード中にエラーが発生しました"
         )

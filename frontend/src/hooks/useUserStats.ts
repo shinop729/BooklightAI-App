@@ -10,8 +10,20 @@ export const useUserStats = () => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['userStats'],
     queryFn: async (): Promise<UserStats> => {
-      const { data } = await apiClient.get<UserStatsResponse>('/user/stats');
-      return data.data;
+      try {
+        const { data } = await apiClient.get<UserStatsResponse>('/api/user/stats');
+        return data.data;
+      } catch (error) {
+        console.error('ユーザー統計情報取得エラー:', error);
+        // エラー時はデフォルト値を返す
+        return {
+          book_count: 0,
+          highlight_count: 0,
+          search_count: 0,
+          chat_count: 0,
+          last_activity: new Date().toISOString()
+        };
+      }
     },
     // エラー時のリトライ回数
     retry: 1,
@@ -23,7 +35,13 @@ export const useUserStats = () => {
   });
   
   return {
-    stats: data,
+    stats: data || {
+      book_count: 0,
+      highlight_count: 0,
+      search_count: 0,
+      chat_count: 0,
+      last_activity: new Date().toISOString()
+    },
     isLoading,
     error,
     refetch

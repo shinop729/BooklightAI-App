@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Booklight AI API"
     VERSION: str = "0.1.0"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
     
     # データベース設定
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./booklight.db")
@@ -13,6 +14,9 @@ class Settings(BaseSettings):
     # 認証設定
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "fallback-secret-key-for-development-only")
     JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    SESSION_SECRET_KEY: str = os.getenv("SESSION_SECRET_KEY", "fallback-session-secret-key-for-development-only")
+    DEBUG_API_KEY: str = os.getenv("DEBUG_API_KEY", "")
     
     # Google OAuth設定
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")

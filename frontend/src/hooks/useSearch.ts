@@ -32,7 +32,7 @@ export const useSearch = (initialKeywords: string[] = []) => {
         ...options
       };
       
-      const { data } = await apiClient.post<SearchResponse>('/search', searchRequest);
+      const { data } = await apiClient.post<SearchResponse>('/api/search', searchRequest);
       
       return data.data;
     },

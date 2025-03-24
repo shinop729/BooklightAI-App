@@ -115,7 +115,7 @@ export const useChat = (options: UseChatOptions = {}) => {
         use_sources: true
       };
       
-      const response = await fetch(`${apiClient.defaults.baseURL}/chat`, {
+      const response = await fetch(`${apiClient.defaults.baseURL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

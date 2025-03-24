@@ -13,7 +13,7 @@ export const useSearchHistory = () => {
   const { data, isLoading, error } = useQuery({
     queryKey: ['searchHistory'],
     queryFn: async (): Promise<SearchHistoryItem[]> => {
-      const { data } = await apiClient.get<SearchHistoryResponse>('/search/history');
+      const { data } = await apiClient.get<SearchHistoryResponse>('/api/search/history');
       return data.data.history;
     },
     // キャッシュ時間（10分）
@@ -23,7 +23,7 @@ export const useSearchHistory = () => {
   // 検索履歴の追加
   const addToHistoryMutation = useMutation({
     mutationFn: async (keywords: string[]) => {
-      await apiClient.post('/search/history', { keywords });
+      await apiClient.post('/api/search/history', { keywords });
     },
     onSuccess: () => {
       // 成功時に検索履歴を再取得
@@ -34,7 +34,7 @@ export const useSearchHistory = () => {
   // 検索履歴の削除
   const deleteFromHistoryMutation = useMutation({
     mutationFn: async (historyId: string) => {
-      await apiClient.delete(`/search/history/${historyId}`);
+      await apiClient.delete(`/api/search/history/${historyId}`);
     },
     onSuccess: () => {
       // 成功時に検索履歴を再取得
@@ -45,7 +45,7 @@ export const useSearchHistory = () => {
   // 検索履歴のクリア
   const clearHistoryMutation = useMutation({
     mutationFn: async () => {
-      await apiClient.delete('/search/history');
+      await apiClient.delete('/api/search/history');
     },
     onSuccess: () => {
       // 成功時に検索履歴を再取得
