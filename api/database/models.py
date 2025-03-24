@@ -9,6 +9,7 @@ class SearchHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     query = Column(String, nullable=False)
+    result_count = Column(Integer, default=0)  # 検索結果数
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)

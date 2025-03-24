@@ -81,6 +81,10 @@ chmod +x run_dev.sh
 
 Herokuへのデプロイ手順は `HEROKU_DEPLOYMENT.md` を参照してください。
 
+## トラブルシューティング
+
+アプリケーションが正常に動作しない場合は、`docs/troubleshooting-guide.md` を参照してください。主な問題と対処法が記載されています。
+
 ## ライセンス
 
 このプロジェクトは独自のライセンスの下で提供されています。

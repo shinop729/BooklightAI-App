@@ -1387,6 +1387,24 @@ async def get_book_cover(
 # 検索関連エンドポイント
 from typing import List as TypeList
 
+# 検索履歴アイテムモデル
+class SearchHistoryItem(BaseModel):
+    """検索履歴アイテムモデル"""
+    id: str
+    keywords: TypeList[str]
+    timestamp: datetime
+    result_count: int
+
+# 検索履歴レスポンスモデル
+class SearchHistoryResponse(BaseModel):
+    """検索履歴レスポンスモデル"""
+    history: TypeList[SearchHistoryItem]
+
+# 検索サジェストレスポンスモデル
+class SearchSuggestResponse(BaseModel):
+    """検索サジェストレスポンスモデル"""
+    suggestions: TypeList[str]
+
 class SearchRequest(BaseModel):
     """検索リクエストモデル"""
     keywords: TypeList[str]
@@ -1394,6 +1412,237 @@ class SearchRequest(BaseModel):
     book_weight: float = 0.3  # 書籍情報の重み（0-1）
     use_expanded: bool = True  # 拡張検索の使用
     limit: int = 20  # 結果の最大数
+
+# 検索履歴取得エンドポイント
+@app.get("/api/search/history")
+async def get_search_history(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ユーザーの検索履歴を取得するエンドポイント"""
+    try:
+        # 検索履歴の取得
+        history_items = db.query(models.SearchHistory).filter(
+            models.SearchHistory.user_id == current_user.id
+        ).order_by(models.SearchHistory.created_at.desc()).limit(20).all()
+        
+        # レスポンスの作成
+        history = []
+        for item in history_items:
+            # キーワードを配列に変換
+            keywords = item.query.split() if item.query else []
+            
+            history.append({
+                "id": str(item.id),
+                "keywords": keywords,
+                "timestamp": item.created_at.isoformat(),
+                "result_count": item.result_count or 0
+            })
+        
+        return {
+            "success": True,
+            "data": {
+                "history": history
+            }
+        }
+    except Exception as e:
+        logger.error(f"検索履歴取得エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="検索履歴の取得中にエラーが発生しました"
+        )
+
+# 検索履歴追加エンドポイント
+@app.post("/api/search/history")
+async def add_search_history(
+    request: dict,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """検索履歴を追加するエンドポイント"""
+    try:
+        # リクエストからキーワードを取得
+        keywords = request.get("keywords", [])
+        if not keywords:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="キーワードが指定されていません"
+            )
+        
+        # 検索クエリの作成
+        search_query = " ".join(keywords)
+        
+        # 検索履歴の保存
+        search_history = models.SearchHistory(
+            query=search_query,
+            user_id=current_user.id,
+            result_count=0  # 初期値
+        )
+        db.add(search_history)
+        db.commit()
+        db.refresh(search_history)
+        
+        return {
+            "success": True,
+            "data": {
+                "id": str(search_history.id),
+                "keywords": keywords,
+                "timestamp": search_history.created_at.isoformat(),
+                "result_count": 0
+            }
+        }
+    except HTTPException as e:
+        # HTTPExceptionはそのまま再送
+        raise e
+    except Exception as e:
+        logger.error(f"検索履歴追加エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="検索履歴の追加中にエラーが発生しました"
+        )
+
+# 検索履歴削除エンドポイント
+@app.delete("/api/search/history/{history_id}")
+async def delete_search_history(
+    history_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """特定の検索履歴を削除するエンドポイント"""
+    try:
+        # 検索履歴の取得
+        history_item = db.query(models.SearchHistory).filter(
+            models.SearchHistory.id == history_id,
+            models.SearchHistory.user_id == current_user.id
+        ).first()
+        
+        if not history_item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定された検索履歴が見つかりません"
+            )
+        
+        # 検索履歴の削除
+        db.delete(history_item)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "検索履歴を削除しました"
+        }
+    except HTTPException as e:
+        # HTTPExceptionはそのまま再送
+        raise e
+    except Exception as e:
+        logger.error(f"検索履歴削除エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="検索履歴の削除中にエラーが発生しました"
+        )
+
+# 全検索履歴削除エンドポイント
+@app.delete("/api/search/history")
+async def clear_search_history(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ユーザーの全検索履歴を削除するエンドポイント"""
+    try:
+        # ユーザーの全検索履歴を削除
+        db.query(models.SearchHistory).filter(
+            models.SearchHistory.user_id == current_user.id
+        ).delete()
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "全ての検索履歴を削除しました"
+        }
+    except Exception as e:
+        logger.error(f"全検索履歴削除エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="検索履歴の削除中にエラーが発生しました"
+        )
+
+# 検索サジェストエンドポイント
+@app.get("/api/search/suggest")
+async def get_search_suggestions(
+    q: str = Query(..., min_length=1),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """検索キーワードの候補を取得するエンドポイント"""
+    try:
+        if not q or len(q) < 2:
+            return {
+                "success": True,
+                "data": {
+                    "suggestions": []
+                }
+            }
+        
+        # 検索クエリの作成
+        search_term = f"%{q}%"
+        
+        # ハイライトからキーワード候補を抽出
+        highlights = db.query(models.Highlight).filter(
+            models.Highlight.user_id == current_user.id,
+            models.Highlight.content.ilike(search_term)
+        ).limit(10).all()
+        
+        # 書籍からキーワード候補を抽出
+        books = db.query(models.Book).filter(
+            models.Book.user_id == current_user.id,
+            or_(
+                models.Book.title.ilike(search_term),
+                models.Book.author.ilike(search_term)
+            )
+        ).limit(5).all()
+        
+        # 候補の抽出と重複除去
+        suggestions = set()
+        
+        # ハイライトからの候補
+        for highlight in highlights:
+            # 単語単位で分割して候補を抽出
+            words = highlight.content.split()
+            for word in words:
+                if q.lower() in word.lower() and len(word) >= 3:
+                    suggestions.add(word)
+        
+        # 書籍からの候補
+        for book in books:
+            if q.lower() in book.title.lower():
+                suggestions.add(book.title)
+            if q.lower() in book.author.lower():
+                suggestions.add(book.author)
+        
+        # 最大10件に制限
+        suggestions_list = list(suggestions)[:10]
+        
+        return {
+            "success": True,
+            "data": {
+                "suggestions": suggestions_list
+            }
+        }
+    except Exception as e:
+        logger.error(f"検索サジェスト取得エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="検索サジェストの取得中にエラーが発生しました"
+        )
 
 @app.post("/api/search")
 async def search_highlights(
@@ -1441,25 +1690,32 @@ async def search_highlights(
                 ).first()
                 
                 if book:
+                    # フロントエンドの期待する形式に変換
                     results.append({
-                        "id": highlight.id,
-                        "content": highlight.content,
-                        "score": 0.8,  # ダミースコア
-                        "metadata": {
-                            "book_id": book.id,
-                            "title": book.title,
-                            "author": book.author,
-                            "location": highlight.location
-                        }
+                        "doc": {
+                            "page_content": highlight.content,
+                            "metadata": {
+                                "original_title": book.title,
+                                "original_author": book.author,
+                                "book_id": book.id,
+                                "location": highlight.location
+                            }
+                        },
+                        "score": 0.8  # ダミースコア
                     })
         
         # 重複を除去
         unique_results = []
-        seen_ids = set()
+        seen_contents = set()
         for result in results:
-            if result["id"] not in seen_ids:
-                seen_ids.add(result["id"])
+            content = result["doc"]["page_content"]
+            if content not in seen_contents:
+                seen_contents.add(content)
                 unique_results.append(result)
+        
+        # 検索履歴の結果数を更新
+        search_history.result_count = len(unique_results)
+        db.commit()
         
         return {
             "success": True,
