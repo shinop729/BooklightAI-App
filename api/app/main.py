@@ -1605,7 +1605,7 @@ async def upload_highlights(
             )
         
         # ヘッダーの検証
-        required_headers = ['Title', 'Author', 'Highlight', 'Location']
+        required_headers = ['Title', 'Author', 'Highlight']
         if not all(header in headers for header in required_headers):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1616,7 +1616,7 @@ async def upload_highlights(
         title_idx = headers.index('Title')
         author_idx = headers.index('Author')
         highlight_idx = headers.index('Highlight')
-        location_idx = headers.index('Location')
+        location_idx = headers.index('Location') if 'Location' in headers else None
         
         # データの処理
         book_count = 0
@@ -1624,13 +1624,16 @@ async def upload_highlights(
         books = {}  # 書籍の重複を避けるための辞書
         
         for row in csv_reader:
-            if len(row) <= max(title_idx, author_idx, highlight_idx, location_idx):
+            # 必須フィールドのインデックスチェック
+            max_required_idx = max(title_idx, author_idx, highlight_idx)
+            if len(row) <= max_required_idx:
                 continue  # 不完全な行はスキップ
             
             title = row[title_idx].strip()
             author = row[author_idx].strip()
             highlight_text = row[highlight_idx].strip()
-            location = row[location_idx].strip()
+            # Locationヘッダーが存在する場合のみ値を取得
+            location = row[location_idx].strip() if location_idx is not None and location_idx < len(row) else ""
             
             if not title or not author or not highlight_text:
                 continue  # 必須フィールドが空の行はスキップ
