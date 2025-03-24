@@ -53,3 +53,30 @@ export const encodeJapaneseUri = (text: string): string => {
   if (!text) return '';
   return encodeURIComponent(text);
 };
+
+/**
+ * 日付をフォーマットする関数
+ * ISO形式の日付文字列を「YYYY/MM/DD」形式に変換
+ */
+export const formatDate = (dateString: string): string => {
+  if (!dateString) return '-';
+  
+  try {
+    const date = new Date(dateString);
+    
+    // 無効な日付の場合
+    if (isNaN(date.getTime())) {
+      return dateString;
+    }
+    
+    // 日本時間に変換（タイムゾーンを考慮）
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    return `${year}/${month}/${day}`;
+  } catch (e) {
+    // 日付の解析に失敗した場合は元の文字列を返す
+    return dateString;
+  }
+};
