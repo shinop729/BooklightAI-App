@@ -14,7 +14,7 @@
  */
 
 const lighthouse = require('lighthouse');
-const puppeteer = require('puppeteer');
+const chromeLauncher = require('chrome-launcher');
 const { writeFileSync, mkdirSync, existsSync } = require('fs');
 const { join } = require('path');
 
@@ -35,7 +35,7 @@ const LIGHTHOUSE_OPTIONS = {
   logLevel: 'info',
   output: 'html',
   onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
-  port: 0
+  chromeFlags: ['--headless', '--no-sandbox']
 };
 
 // 結果ディレクトリの作成
@@ -65,11 +65,11 @@ const runAudit = async () => {
     mkdirSync(reportDir, { recursive: true });
   }
   
-  // Puppeteerの起動
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    defaultViewport: { width: 1280, height: 800 }
+  // Chromeの起動
+  const chrome = await chromeLauncher.launch({
+    chromeFlags: LIGHTHOUSE_OPTIONS.chromeFlags
   });
+  const options = { ...LIGHTHOUSE_OPTIONS, port: chrome.port };
   
   // サマリーレポート用のデータ
   const summaryData = [];
@@ -82,7 +82,8 @@ const runAudit = async () => {
     
     try {
       // Lighthouseの実行
-      const { lhr } = await lighthouse(url, LIGHTHOUSE_OPTIONS, null);
+      const runnerResult = await lighthouse(url, options);
+      const lhr = runnerResult.lhr;
       
       // スコアの取得
       const scores = {
@@ -101,7 +102,7 @@ const runAudit = async () => {
       
       // HTMLレポートの保存
       const reportPath = join(reportDir, `${page.name.replace(/\s+/g, '-').toLowerCase()}.html`);
-      writeFileSync(reportPath, lhr.report);
+      writeFileSync(reportPath, runnerResult.report);
       
       console.log(`"${page.name}" の監査が完了しました`);
       console.log(`パフォーマンス: ${scores.performance.toFixed(0)}%`);
@@ -123,8 +124,8 @@ const runAudit = async () => {
   const htmlSummaryPath = join(reportDir, 'summary.html');
   writeFileSync(htmlSummaryPath, htmlSummary);
   
-  // ブラウザの終了
-  await browser.close();
+  // Chromeの終了
+  await chrome.kill();
   
   console.log('\nパフォーマンス監査が完了しました');
   console.log(`レポートは ${reportDir} に保存されました`);

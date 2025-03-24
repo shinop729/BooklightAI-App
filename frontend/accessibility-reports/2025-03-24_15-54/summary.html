@@ -1,0 +1,189 @@
+
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>アクセシビリティチェックサマリー - 2025-03-24_15-54</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+          line-height: 1.6;
+          color: #333;
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        h1 {
+          color: #2c3e50;
+          border-bottom: 2px solid #eee;
+          padding-bottom: 10px;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 20px 0;
+        }
+        th, td {
+          padding: 12px 15px;
+          text-align: left;
+          border-bottom: 1px solid #ddd;
+        }
+        th {
+          background-color: #f8f9fa;
+          font-weight: bold;
+        }
+        tr:hover {
+          background-color: #f5f5f5;
+        }
+        .violation-0 {
+          color: #28a745;
+          font-weight: bold;
+        }
+        .violation-low {
+          color: #ffc107;
+          font-weight: bold;
+        }
+        .violation-high {
+          color: #dc3545;
+          font-weight: bold;
+        }
+        .passes {
+          color: #28a745;
+        }
+        .summary {
+          margin-top: 30px;
+          padding: 15px;
+          background-color: #f8f9fa;
+          border-radius: 5px;
+        }
+        .wcag-list {
+          column-count: 2;
+          column-gap: 20px;
+        }
+        @media (max-width: 768px) {
+          .wcag-list {
+            column-count: 1;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <h1>アクセシビリティチェックサマリー</h1>
+      <p>実行日時: 2025-03-24 15-54</p>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>ページ</th>
+            <th>パス</th>
+            <th>違反合計</th>
+            <th>重大</th>
+            <th>深刻</th>
+            <th>中程度</th>
+            <th>軽微</th>
+            <th>合格</th>
+          </tr>
+        </thead>
+        <tbody>
+          
+    <tr>
+      <td>ホーム</td>
+      <td>/</td>
+      <td class="violation-high">3</td>
+      <td class="violation-0">0</td>
+      <td class="violation-low">1</td>
+      <td class="violation-low">2</td>
+      <td class="violation-0">0</td>
+      <td class="passes">15</td>
+    </tr>
+  
+    <tr>
+      <td>書籍一覧</td>
+      <td>/books</td>
+      <td class="violation-high">3</td>
+      <td class="violation-0">0</td>
+      <td class="violation-low">1</td>
+      <td class="violation-low">2</td>
+      <td class="violation-0">0</td>
+      <td class="passes">15</td>
+    </tr>
+  
+    <tr>
+      <td>検索</td>
+      <td>/search</td>
+      <td class="violation-high">3</td>
+      <td class="violation-0">0</td>
+      <td class="violation-low">1</td>
+      <td class="violation-low">2</td>
+      <td class="violation-0">0</td>
+      <td class="passes">15</td>
+    </tr>
+  
+    <tr>
+      <td>チャット</td>
+      <td>/chat</td>
+      <td class="violation-high">3</td>
+      <td class="violation-0">0</td>
+      <td class="violation-low">1</td>
+      <td class="violation-low">2</td>
+      <td class="violation-0">0</td>
+      <td class="passes">15</td>
+    </tr>
+  
+    <tr>
+      <td>アップロード</td>
+      <td>/upload</td>
+      <td class="violation-high">3</td>
+      <td class="violation-0">0</td>
+      <td class="violation-low">1</td>
+      <td class="violation-low">2</td>
+      <td class="violation-0">0</td>
+      <td class="passes">15</td>
+    </tr>
+  
+        </tbody>
+      </table>
+      
+      <div class="summary">
+        <h2>アクセシビリティ改善のヒント</h2>
+        <p>以下のWCAG 2.1ガイドラインに基づいて改善を検討してください：</p>
+        
+        <div class="wcag-list">
+          <ul>
+            <li><strong>知覚可能性</strong>
+              <ul>
+                <li>テキスト以外のコンテンツに代替テキストを提供する</li>
+                <li>時間依存メディアに代替手段を提供する</li>
+                <li>コンテンツを様々な方法で提示できるようにする</li>
+                <li>ユーザーがコンテンツを見やすく、聞きやすくする</li>
+              </ul>
+            </li>
+            <li><strong>操作可能性</strong>
+              <ul>
+                <li>すべての機能をキーボードから利用できるようにする</li>
+                <li>ユーザーがコンテンツを読み、使用するのに十分な時間を提供する</li>
+                <li>発作を引き起こすようなコンテンツを設計しない</li>
+                <li>ユーザーがナビゲートし、コンテンツを見つけるのを助ける</li>
+              </ul>
+            </li>
+            <li><strong>理解可能性</strong>
+              <ul>
+                <li>テキストコンテンツを読みやすく、理解しやすくする</li>
+                <li>ウェブページの外観と操作を予測可能にする</li>
+                <li>ユーザーが間違いを回避し、修正できるよう支援する</li>
+              </ul>
+            </li>
+            <li><strong>堅牢性</strong>
+              <ul>
+                <li>支援技術を含む現在および将来のユーザーエージェントとの互換性を最大化する</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+        
+        <p>詳細な分析は各ページの個別レポートを参照してください。</p>
+      </div>
+    </body>
+    </html>
+  

@@ -1,0 +1,42 @@
+[
+  {
+    "page": "ホーム",
+    "path": "/",
+    "performance": 0,
+    "accessibility": 0,
+    "bestPractices": 0,
+    "seo": 0
+  },
+  {
+    "page": "書籍一覧",
+    "path": "/books",
+    "performance": 0,
+    "accessibility": 0,
+    "bestPractices": 0,
+    "seo": 0
+  },
+  {
+    "page": "検索",
+    "path": "/search",
+    "performance": 0,
+    "accessibility": 0,
+    "bestPractices": 0,
+    "seo": 0
+  },
+  {
+    "page": "チャット",
+    "path": "/chat",
+    "performance": 0,
+    "accessibility": 0,
+    "bestPractices": 0,
+    "seo": 0
+  },
+  {
+    "page": "アップロード",
+    "path": "/upload",
+    "performance": 0,
+    "accessibility": 0,
+    "bestPractices": 0,
+    "seo": 0
+  }
+]
