@@ -1,14 +1,71 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import apiClient from '../api/client';
 import { ChatMessage, ChatRequest, ChatRole, ChatSource } from '../types';
+import { useChatStore } from '../store/chatStore';
 
-export const useChat = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+interface UseChatOptions {
+  bookTitle?: string;
+  sessionId?: string;
+}
+
+export const useChat = (options: UseChatOptions = {}) => {
+  const [searchParams] = useSearchParams();
+  const bookParam = searchParams.get('book');
+  const bookTitle = options.bookTitle || bookParam || undefined;
+  
+  // チャットストアからの状態と操作
+  const {
+    sessions,
+    currentSessionId,
+    createSession,
+    selectSession,
+    addMessage,
+    updateMessage,
+    deleteSession
+  } = useChatStore();
+  
+  // ローカル状態
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  
+  // 現在のセッションのメッセージ
+  const currentSession = sessions.find(s => s.id === currentSessionId);
+  const messages = currentSession?.messages || [];
+  
+  // セッションの初期化
+  useEffect(() => {
+    // セッションIDが指定されている場合はそれを選択
+    if (options.sessionId) {
+      const sessionExists = sessions.some(s => s.id === options.sessionId);
+      if (sessionExists) {
+        selectSession(options.sessionId);
+      } else {
+        // 存在しない場合は新しいセッションを作成
+        createSession(bookTitle ? `${bookTitle}について` : undefined);
+      }
+    } else if (!currentSessionId) {
+      // 現在のセッションがない場合は新しいセッションを作成
+      createSession(bookTitle ? `${bookTitle}について` : undefined);
+    }
+  }, [options.sessionId, bookTitle, currentSessionId, sessions, createSession, selectSession]);
+  
+  // システムメッセージの作成
+  const createSystemMessage = useCallback(() => {
+    if (!bookTitle) return null;
+    
+    return {
+      role: 'system' as ChatRole,
+      content: `ユーザーは「${bookTitle}」という本について質問しています。この本に関連する情報を中心に回答してください。`
+    };
+  }, [bookTitle]);
 
   const sendMessage = useCallback(async (content: string) => {
+    if (!currentSessionId) {
+      setError('チャットセッションが初期化されていません');
+      return;
+    }
     setIsLoading(true);
     setError(null);
     
@@ -19,7 +76,7 @@ export const useChat = () => {
       content,
       timestamp: Date.now()
     };
-    setMessages(prev => [...prev, userMessage]);
+    addMessage(userMessage);
     
     // AIの応答用プレースホルダー
     const aiMessage: ChatMessage = {
@@ -29,7 +86,7 @@ export const useChat = () => {
       timestamp: Date.now(),
       isStreaming: true
     };
-    setMessages(prev => [...prev, aiMessage]);
+    addMessage(aiMessage);
     
     // AbortControllerの設定
     const controller = new AbortController();
@@ -37,12 +94,25 @@ export const useChat = () => {
     
     try {
       // チャットリクエストの作成
-      const chatRequest: ChatRequest = {
-        messages: messages.concat(userMessage).map(m => ({
+      const systemMessage = createSystemMessage();
+      const chatMessages = messages.slice(0, -1); // 最後のAIメッセージを除外
+      
+      const requestMessages = [
+        ...(systemMessage ? [systemMessage] : []),
+        ...chatMessages.map(m => ({
           role: m.role as ChatRole,
           content: m.content
         })),
-        stream: true
+        {
+          role: userMessage.role as ChatRole,
+          content: userMessage.content
+        }
+      ];
+      
+      const chatRequest: ChatRequest = {
+        messages: requestMessages,
+        stream: true,
+        use_sources: true
       };
       
       const response = await fetch(`${apiClient.defaults.baseURL}/api/v2/chat`, {
@@ -79,41 +149,28 @@ export const useChat = () => {
         accumulatedContent += chunk;
         
         // メッセージを更新
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastIndex = newMessages.length - 1;
-          newMessages[lastIndex] = {
-            ...newMessages[lastIndex],
-            content: accumulatedContent,
-            isStreaming: !done
-          };
-          return newMessages;
+        updateMessage(aiMessage.id, {
+          content: accumulatedContent,
+          isStreaming: !done
         });
       }
       
       // ストリーミング完了
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastIndex = newMessages.length - 1;
-        
-        // ソース情報の取得と型変換
-        let sources: ChatSource[] = [];
-        try {
-          const sourcesHeader = response.headers.get('X-Sources');
-          if (sourcesHeader) {
-            sources = JSON.parse(sourcesHeader) as ChatSource[];
-          }
-        } catch (e) {
-          console.error('Failed to parse sources:', e);
+      // ソース情報の取得と型変換
+      let sources: ChatSource[] = [];
+      try {
+        const sourcesHeader = response.headers.get('X-Sources');
+        if (sourcesHeader) {
+          sources = JSON.parse(sourcesHeader) as ChatSource[];
         }
-        
-        newMessages[lastIndex] = {
-          ...newMessages[lastIndex],
-          content: accumulatedContent,
-          isStreaming: false,
-          sources
-        };
-        return newMessages;
+      } catch (e) {
+        console.error('Failed to parse sources:', e);
+      }
+      
+      updateMessage(aiMessage.id, {
+        content: accumulatedContent,
+        isStreaming: false,
+        sources
       });
       
     } catch (e) {
@@ -121,16 +178,10 @@ export const useChat = () => {
         if (e.name !== 'AbortError') {
           setError(e.message);
           // エラーメッセージを表示
-          setMessages(prev => {
-            const newMessages = [...prev];
-            const lastIndex = newMessages.length - 1;
-            newMessages[lastIndex] = {
-              ...newMessages[lastIndex],
-              content: `エラーが発生しました: ${e.message}`,
-              isError: true,
-              isStreaming: false
-            };
-            return newMessages;
+          updateMessage(aiMessage.id, {
+            content: `エラーが発生しました: ${e.message}`,
+            isError: true,
+            isStreaming: false
           });
         }
       }
@@ -138,7 +189,7 @@ export const useChat = () => {
       setIsLoading(false);
       setAbortController(null);
     }
-  }, [messages]);
+  }, [currentSessionId, messages, addMessage, updateMessage, createSystemMessage]);
   
   // チャットのキャンセル
   const cancelChat = useCallback(() => {
@@ -147,25 +198,30 @@ export const useChat = () => {
       setIsLoading(false);
       
       // ストリーミング中のメッセージを更新
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastIndex = newMessages.length - 1;
-        if (newMessages[lastIndex].isStreaming) {
-          newMessages[lastIndex] = {
-            ...newMessages[lastIndex],
-            content: newMessages[lastIndex].content + ' (キャンセルされました)',
+      if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage.isStreaming) {
+          updateMessage(lastMessage.id, {
+            content: lastMessage.content + ' (キャンセルされました)',
             isStreaming: false
-          };
+          });
         }
-        return newMessages;
-      });
+      }
     }
-  }, [abortController]);
+  }, [abortController, messages, updateMessage]);
   
   // 会話履歴のクリア
   const clearChat = useCallback(() => {
-    setMessages([]);
-  }, []);
+    if (currentSessionId) {
+      deleteSession(currentSessionId);
+      createSession(bookTitle ? `${bookTitle}について` : undefined);
+    }
+  }, [currentSessionId, bookTitle, deleteSession, createSession]);
+  
+  // 新しいチャットの開始
+  const startNewChat = useCallback(() => {
+    createSession(bookTitle ? `${bookTitle}について` : undefined);
+  }, [bookTitle, createSession]);
   
   return {
     messages,
@@ -173,6 +229,11 @@ export const useChat = () => {
     error,
     sendMessage,
     cancelChat,
-    clearChat
+    clearChat,
+    startNewChat,
+    currentSessionId,
+    sessions,
+    selectSession,
+    bookTitle
   };
 };
