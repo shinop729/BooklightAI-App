@@ -2,8 +2,9 @@
 // const API_BASE_URL = 'http://localhost:8000'; // 開発環境
 const API_BASE_URL = 'https://booklight-ai.com'; // 本番環境
 
+
 // 開発モードの設定
-const DEV_MODE = false; // 本番環境ではfalseに設定
+const DEV_MODE = true; // 開発環境ではtrueに設定
 
 // ダミーデータのインポート（開発用）
 let dummyData = null;
