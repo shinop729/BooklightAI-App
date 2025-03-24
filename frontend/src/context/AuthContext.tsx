@@ -88,8 +88,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // リダイレクト前にローカルストレージに現在のURLを保存
     localStorage.setItem('redirect_after_login', window.location.pathname);
     
-    // Google認証ページへリダイレクト
-    window.location.href = `${apiClient.defaults.baseURL}/auth/google`;
+    // Google認証ページへリダイレクト（クエリパラメータ付き）
+    window.location.href = `${apiClient.defaults.baseURL}/auth/google?args=&kwargs=`;
   };
 
   const logout = async () => {

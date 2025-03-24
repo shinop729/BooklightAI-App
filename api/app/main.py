@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Security
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Security, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, APIKeyHeader, HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
@@ -288,12 +288,12 @@ async def root():
     """
 
 # Google OAuth認証関連のエンドポイント
-@app.get("/auth/google")
 @track_transaction("google_oauth_redirect")
+@app.get("/auth/google")
 async def login_via_google(
     request: Request,
-    args: Optional[str] = None,
-    kwargs: Optional[str] = None
+    args: Optional[str] = Query(None),
+    kwargs: Optional[str] = Query(None)
 ):
     """Google OAuth認証のリダイレクトエンドポイント"""
     # カスタムドメインが最優先
@@ -336,16 +336,16 @@ async def login_via_google(
         prompt="consent"
     )
 
-@app.get("/auth/callback")
 @track_transaction("google_oauth_callback")
+@app.get("/auth/callback")
 async def auth_callback(
     request: Request,
     response: Response,
     code: str = None,
     state: str = None,
     error: str = None,
-    args: Optional[str] = None,
-    kwargs: Optional[str] = None,
+    args: Optional[str] = Query(None),
+    kwargs: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     """Google OAuth認証のコールバックエンドポイント（DB版）"""
@@ -459,8 +459,8 @@ async def auth_callback(
         error_url = f"/auth/error-minimal?error={str(e)}"
         return RedirectResponse(url=error_url)
 # トークンリフレッシュエンドポイント
-@app.post("/auth/token")
 @track_transaction("token_refresh")
+@app.post("/auth/token")
 async def token_refresh_endpoint(request: Request, db: Session = Depends(get_db)):
     """
     トークンリフレッシュエンドポイント
@@ -528,8 +528,8 @@ async def token_refresh_endpoint(request: Request, db: Session = Depends(get_db)
 async def auth_success_minimal(
     token: str, 
     user: str,
-    args: Optional[str] = None,
-    kwargs: Optional[str] = None
+    args: Optional[str] = Query(None),
+    kwargs: Optional[str] = Query(None)
 ):
     """最小限の認証成功ページ（静的ファイルを使用しない）"""
     return f"""
@@ -603,8 +603,8 @@ async def auth_success_minimal(
 @app.get("/auth/error-minimal", response_class=HTMLResponse)
 async def auth_error_minimal(
     error: str = "不明なエラー",
-    args: Optional[str] = None,
-    kwargs: Optional[str] = None
+    args: Optional[str] = Query(None),
+    kwargs: Optional[str] = Query(None)
 ):
     """最小限の認証エラーページ（静的ファイルを使用しない）"""
     return f"""
