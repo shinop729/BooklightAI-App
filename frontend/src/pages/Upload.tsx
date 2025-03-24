@@ -1,89 +1,45 @@
-import { useState, useRef, ChangeEvent } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import apiClient from '../api/client';
+import { useRef, ChangeEvent } from 'react';
+import { useFileUpload } from '../hooks/useFileUpload';
 import { useSummaryProgressStore } from '../store/summaryProgressStore';
-
-interface FileUploadResponse {
-  success: boolean;
-  message: string;
-  bookCount: number;
-  highlightCount: number;
-}
+import { useToast } from '../context/ToastContext';
 
 const Upload = () => {
-  const [file, setFile] = useState<File | null>(null);
-  const [filePreview, setFilePreview] = useState<string | null>(null);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [uploadStats, setUploadStats] = useState<{ bookCount: number; highlightCount: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
   
-  const { isActive: isGenerating, current: completed, total, startProgress: startGenerating } = useSummaryProgressStore();
-
-  // ファイルアップロードのミューテーション
-  const uploadMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      const { data } = await apiClient.post<FileUploadResponse>('/api/v2/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return data;
-    },
-    onSuccess: (data) => {
-      setUploadSuccess(true);
-      setUploadStats({
-        bookCount: data.bookCount,
-        highlightCount: data.highlightCount,
-      });
-      // ファイル選択をリセット
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    },
-  });
+  // カスタムフックの使用
+  const {
+    file,
+    filePreview,
+    uploadSuccess,
+    uploadStats,
+    uploadProgress,
+    isUploading,
+    error,
+    handleFileSelect,
+    uploadFile,
+    resetFile,
+    isOnline
+  } = useFileUpload();
+  
+  const { 
+    isActive: isGenerating, 
+    current: completed, 
+    total, 
+    startProgress: startGenerating 
+  } = useSummaryProgressStore();
 
   // ファイル選択ハンドラー
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
-
-    setFile(selectedFile);
-    setUploadSuccess(false);
-    setUploadStats(null);
-
-    // CSVファイルのプレビュー
-    if (selectedFile.type === 'text/csv' || selectedFile.name.endsWith('.csv')) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        // 最初の数行だけ表示
-        const lines = content.split('\n').slice(0, 10).join('\n');
-        setFilePreview(lines);
-      };
-      reader.readAsText(selectedFile);
-    } else {
-      setFilePreview(null);
-    }
-  };
-
-  // ファイルアップロード
-  const handleUpload = async () => {
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-      await uploadMutation.mutateAsync(formData);
-    } catch (error) {
-      console.error('アップロードエラー:', error);
-    }
+    handleFileSelect(selectedFile || null);
   };
 
   // サマリー生成開始
   const handleGenerateSummaries = () => {
     if (uploadStats?.bookCount) {
       startGenerating(uploadStats.bookCount);
+      showToast('info', `${uploadStats.bookCount}冊の書籍のサマリー生成を開始しました`);
     }
   };
 
@@ -100,6 +56,18 @@ const Upload = () => {
             Chrome拡張機能を使用すると、自動的にハイライトを収集できます。
           </p>
           
+          {/* オフライン警告 */}
+          {!isOnline && (
+            <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 mb-4">
+              <p className="text-yellow-400 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                オフラインモードです。インターネット接続を確認してください。
+              </p>
+            </div>
+          )}
+          
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
               <input
@@ -111,19 +79,43 @@ const Upload = () => {
               />
             </div>
             <button
-              onClick={handleUpload}
-              disabled={!file || uploadMutation.isPending}
+              onClick={uploadFile}
+              disabled={!file || isUploading || !isOnline}
               className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {uploadMutation.isPending ? '処理中...' : 'アップロード'}
+              {isUploading ? '処理中...' : 'アップロード'}
             </button>
           </div>
+          
+          {/* アップロード進捗バー */}
+          {isUploading && uploadProgress > 0 && (
+            <div className="mt-4">
+              <div className="flex justify-between mb-1 text-sm">
+                <span className="text-gray-400">アップロード中...</span>
+                <span className="text-blue-400">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
         </div>
         
         {/* ファイルプレビュー */}
         {filePreview && (
           <div className="mb-6">
-            <h3 className="text-lg font-medium text-white mb-2">ファイルプレビュー</h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-medium text-white">ファイルプレビュー</h3>
+              <button
+                onClick={resetFile}
+                className="text-gray-400 hover:text-gray-300 text-sm"
+              >
+                クリア
+              </button>
+            </div>
             <div className="bg-gray-900 p-4 rounded-lg overflow-x-auto">
               <pre className="text-gray-300 text-sm whitespace-pre-wrap">{filePreview}</pre>
             </div>
@@ -151,11 +143,11 @@ const Upload = () => {
         )}
         
         {/* エラー表示 */}
-        {uploadMutation.isError && (
+        {error && (
           <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 mb-6">
             <h3 className="text-lg font-medium text-red-400 mb-2">エラーが発生しました</h3>
             <p className="text-gray-300">
-              ファイルのアップロードに失敗しました。もう一度お試しください。
+              {error instanceof Error ? error.message : 'ファイルのアップロードに失敗しました。もう一度お試しください。'}
             </p>
           </div>
         )}
@@ -173,7 +165,7 @@ const Upload = () => {
             </div>
             <div className="w-full bg-gray-700 rounded-full h-2.5">
               <div
-                className="bg-blue-600 h-2.5 rounded-full"
+                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
                 style={{ width: `${(completed / Math.max(total, 1)) * 100}%` }}
               ></div>
             </div>
