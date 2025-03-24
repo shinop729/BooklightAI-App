@@ -1,13 +1,8 @@
 import { create } from 'zustand';
+import { SummaryProgressState } from '../types';
 
-interface SummaryProgressState {
-  isActive: boolean;
-  progress: number;
-  current: number;
-  total: number;
-  currentBook: string;
-  status: 'processing' | 'completed' | 'error';
-  
+// アクション付きの状態型
+interface SummaryProgressStoreState extends SummaryProgressState {
   // アクション
   setProgress: (progress: number) => void;
   setCurrentBook: (book: string) => void;
@@ -19,7 +14,7 @@ interface SummaryProgressState {
   setError: () => void;
 }
 
-export const useSummaryProgressStore = create<SummaryProgressState>((set) => ({
+export const useSummaryProgressStore = create<SummaryProgressStoreState>((set) => ({
   isActive: false,
   progress: 0,
   current: 0,

@@ -1,15 +1,6 @@
 import { useState, useCallback } from 'react';
 import apiClient from '../api/client';
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-  isStreaming?: boolean;
-  isError?: boolean;
-  sources?: any[];
-}
+import { ChatMessage, ChatRequest, ChatRole, ChatSource } from '../types';
 
 export const useChat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -45,18 +36,22 @@ export const useChat = () => {
     setAbortController(controller);
     
     try {
+      // チャットリクエストの作成
+      const chatRequest: ChatRequest = {
+        messages: messages.concat(userMessage).map(m => ({
+          role: m.role as ChatRole,
+          content: m.content
+        })),
+        stream: true
+      };
+      
       const response = await fetch(`${apiClient.defaults.baseURL}/api/v2/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({
-          messages: messages.concat(userMessage).map(m => ({
-            role: m.role,
-            content: m.content
-          }))
-        }),
+        body: JSON.stringify(chatRequest),
         signal: controller.signal
       });
       
@@ -100,12 +95,23 @@ export const useChat = () => {
       setMessages(prev => {
         const newMessages = [...prev];
         const lastIndex = newMessages.length - 1;
+        
+        // ソース情報の取得と型変換
+        let sources: ChatSource[] = [];
+        try {
+          const sourcesHeader = response.headers.get('X-Sources');
+          if (sourcesHeader) {
+            sources = JSON.parse(sourcesHeader) as ChatSource[];
+          }
+        } catch (e) {
+          console.error('Failed to parse sources:', e);
+        }
+        
         newMessages[lastIndex] = {
           ...newMessages[lastIndex],
           content: accumulatedContent,
           isStreaming: false,
-          sources: response.headers.get('X-Sources') ? 
-            JSON.parse(response.headers.get('X-Sources') || '[]') : []
+          sources
         };
         return newMessages;
       });

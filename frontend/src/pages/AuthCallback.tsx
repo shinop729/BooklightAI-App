@@ -10,30 +10,51 @@ const AuthCallback = () => {
   useEffect(() => {
     const handleCallback = async () => {
       try {
+        console.log('AuthCallback: コールバック処理開始');
+        console.log('現在のURL:', window.location.href);
+        
         // URLからトークンを取得
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
         const user = urlParams.get('user');
         
+        console.log('URLパラメータ:', {
+          token: token ? '存在します' : 'ありません',
+          user: user || 'ありません'
+        });
+        
         if (!token) {
+          console.error('認証エラー: トークンがありません');
           setMessage('認証エラー: トークンがありません');
           setTimeout(() => navigate('/login'), 3000);
           return;
         }
         
         // トークンを保存
+        console.log('トークンをlocalStorageに保存します');
         localStorage.setItem('token', token);
         setMessage(`認証成功！ようこそ、${user || 'ユーザー'}さん`);
         
         // トークンリフレッシュを実行して認証状態を更新
-        await refreshToken();
+        console.log('トークンリフレッシュを実行します');
+        try {
+          await refreshToken();
+          console.log('トークンリフレッシュ成功');
+        } catch (refreshError) {
+          console.error('トークンリフレッシュエラー:', refreshError);
+        }
         
         // 保存されていたリダイレクト先があればそこへ、なければホームページへ
         const redirectPath = localStorage.getItem('redirect_after_login') || '/';
+        console.log('リダイレクト先:', redirectPath);
         localStorage.removeItem('redirect_after_login'); // リダイレクト先をクリア
         
         setMessage('リダイレクトします...');
-        setTimeout(() => navigate(redirectPath), 1000);
+        console.log('ページ遷移を実行します:', redirectPath);
+        setTimeout(() => {
+          console.log('navigate関数を実行');
+          navigate(redirectPath);
+        }, 1000);
       } catch (error) {
         console.error('認証コールバックエラー:', error);
         setMessage(`認証エラー: ${error instanceof Error ? error.message : '不明なエラー'}`);

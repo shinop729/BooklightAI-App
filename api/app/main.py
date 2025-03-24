@@ -366,13 +366,18 @@ async def auth_callback(
             logger.error("認証コードがありません")
             return RedirectResponse(url="/auth/error-minimal?error=認証コードがありません")
         
-        # セッションからフロントエンドURLを取得
-        frontend_url = request.session.get('frontend_url')
+        # フロントエンドURLを環境変数から直接取得（設定ファイルではなく直接読み込む）
+        frontend_url = os.environ.get('FRONTEND_URL')
+        logger.info(f"環境変数から直接取得したフロントエンドURL: {frontend_url}")
+        
+        # 環境変数が設定されていない場合はデフォルト値を使用
         if not frontend_url:
-            frontend_url = await determine_frontend_url(request)
-            logger.info(f"セッションからフロントエンドURLを取得できませんでした。代替: {frontend_url}")
-        else:
-            logger.info(f"セッションからフロントエンドURL取得: {frontend_url}")
+            frontend_url = "http://localhost:5173"  # デフォルト値を明示的に設定
+            logger.info(f"デフォルトのフロントエンドURLを使用: {frontend_url}")
+        
+        # セッションからのURLも記録（デバッグ用）
+        session_url = request.session.get('frontend_url')
+        logger.info(f"セッションから取得したフロントエンドURL: {session_url}")
         
         # クエリパラメータを直接ログに出力（デバッグ用）
         for key, value in request.query_params.items():
@@ -485,7 +490,13 @@ async def auth_callback(
         )
         
         # フロントエンドのコールバックページにリダイレクト
+        # 環境変数から直接フロントエンドURLを取得（最も信頼性が高い）
+        frontend_url = os.getenv('FRONTEND_URL')
+        if not frontend_url:
+            frontend_url = "http://localhost:5173"  # デフォルト値を明示的に設定
+        
         callback_url = f"{frontend_url}/auth/callback?token={access_token}&user={user_data['username']}"
+        logger.info(f"最終的なコールバックURL: {callback_url}")
         
         # ユーザーコンテキストの設定
         set_user_context(user_id=user_data["username"], email=user_data["email"])
@@ -495,7 +506,28 @@ async def auth_callback(
         
         # リダイレクト
         logger.info(f"認証成功後のリダイレクト先: {callback_url}")
-        return RedirectResponse(url=callback_url)
+        
+        # HTMLレスポンスを返す（JavaScriptでリダイレクト）
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>認証成功 - リダイレクト中</title>
+            <meta charset="utf-8">
+            <meta http-equiv="refresh" content="0;url={callback_url}">
+            <script>
+                console.log("認証成功: リダイレクト実行");
+                window.location.href = "{callback_url}";
+            </script>
+        </head>
+        <body>
+            <p>認証に成功しました。リダイレクトしています...</p>
+            <p>自動的にリダイレクトされない場合は、<a href="{callback_url}">こちらをクリック</a>してください。</p>
+        </body>
+        </html>
+        """
+        
+        return HTMLResponse(content=html_content)
         
     
     except Exception as e:

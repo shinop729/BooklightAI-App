@@ -1,17 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
-
-export interface SearchResult {
-  doc: {
-    page_content: string;
-    metadata: {
-      original_title: string;
-      original_author: string;
-    };
-  };
-  score: number;
-}
+import { SearchResult, SearchRequest, SearchResponse } from '../types';
 
 export const useSearch = (initialKeywords: string[] = []) => {
   const [keywords, setKeywords] = useState<string[]>(initialKeywords);
@@ -22,14 +12,16 @@ export const useSearch = (initialKeywords: string[] = []) => {
     queryFn: async () => {
       if (keywords.length === 0) return { results: [] };
       
-      const { data } = await apiClient.post('/api/v2/search', {
+      const searchRequest: SearchRequest = {
         keywords,
         hybrid_alpha: 0.7,
         book_weight: 0.3,
         use_expanded: true
-      });
+      };
       
-      return data;
+      const { data } = await apiClient.post<SearchResponse>('/api/v2/search', searchRequest);
+      
+      return data.data;
     },
     // キーワードが空の場合は実行しない
     enabled: keywords.length > 0
