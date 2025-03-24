@@ -1131,6 +1131,9 @@ async def get_books(
 ):
     """書籍一覧を取得するエンドポイント"""
     try:
+        # デバッグ情報をログに出力
+        logger.info(f"書籍一覧取得リクエスト: ユーザーID={current_user.id}, page={page}, page_size={page_size}, sort_by={sort_by}, sort_order={sort_order}, search={search}")
+        
         # 基本クエリ（ユーザーIDでフィルタリング）
         query = db.query(models.Book).filter(models.Book.user_id == current_user.id)
         
@@ -1146,6 +1149,7 @@ async def get_books(
         
         # 総数の取得
         total = query.count()
+        logger.info(f"検索条件に一致する書籍数: {total}")
         
         # ソート条件の適用
         if sort_by == "title":
@@ -1153,20 +1157,58 @@ async def get_books(
         elif sort_by == "author":
             query = query.order_by(asc(models.Book.author) if sort_order == "asc" else desc(models.Book.author))
         elif sort_by == "highlightCount":
-            # ハイライト数でソート（サブクエリを使用）
-            highlight_count = (
-                db.query(func.count(models.Highlight.id))
-                .filter(models.Highlight.book_id == models.Book.id)
-                .scalar_subquery()
+            # ハイライト数でソートする場合は、別のアプローチを使用
+            # まず全ての書籍を取得し、メモリ内でソート
+            books_with_counts = []
+            for book in query.all():
+                highlight_count = db.query(models.Highlight).filter(
+                    models.Highlight.book_id == book.id
+                ).count()
+                books_with_counts.append((book, highlight_count))
+            
+            # ハイライト数でソート
+            books_with_counts.sort(
+                key=lambda x: x[1], 
+                reverse=(sort_order == "desc")
             )
-            query = query.order_by(asc(highlight_count) if sort_order == "asc" else desc(highlight_count))
+            
+            # ページネーション処理
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            paginated_books = [book for book, _ in books_with_counts[start_idx:end_idx]]
+            
+            # レスポンスの作成
+            book_list = []
+            for book, count in books_with_counts[start_idx:end_idx]:
+                book_list.append({
+                    "id": book.id,
+                    "title": book.title,
+                    "author": book.author,
+                    "highlightCount": count,
+                    "coverUrl": None,  # 表紙画像URLは別途取得
+                    "createdAt": book.created_at.isoformat() if hasattr(book, 'created_at') else None
+                })
+            
+            # 早期リターン
+            total_pages = ceil(total / page_size)
+            return {
+                "success": True,
+                "data": {
+                    "items": book_list,
+                    "total": total,
+                    "total_pages": total_pages,
+                    "page": page,
+                    "page_size": page_size
+                }
+            }
         
-        # ページネーション
+        # ページネーション（highlightCountでのソート以外の場合）
         total_pages = ceil(total / page_size)
         query = query.offset((page - 1) * page_size).limit(page_size)
         
         # 結果の取得
         books = query.all()
+        logger.info(f"取得した書籍数: {len(books)}")
         
         # レスポンスの作成
         book_list = []
@@ -1197,9 +1239,24 @@ async def get_books(
         }
     except Exception as e:
         logger.error(f"書籍一覧取得エラー: {e}")
-        raise HTTPException(
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        
+        # エラーレスポンスをJSONで返す
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="書籍一覧の取得中にエラーが発生しました"
+            content={
+                "success": False,
+                "error": "書籍一覧の取得中にエラーが発生しました",
+                "message": str(e),
+                "data": {
+                    "items": [],
+                    "total": 0,
+                    "total_pages": 0,
+                    "page": page,
+                    "page_size": page_size
+                }
+            }
         )
 
 # 特定書籍取得エンドポイント

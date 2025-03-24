@@ -17,20 +17,33 @@ export const useBooksPagination = () => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['books', page, pageSize, sortBy, sortOrder, searchTerm],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        page_size: pageSize.toString(),
-        sort_by: sortBy,
-        sort_order: sortOrder,
-        ...(searchTerm ? { search: searchTerm } : {})
-      });
-      
-      const { data } = await apiClient.get<PaginatedBooksResponse>(
-        `/api/books?${params.toString()}`
-      );
-      
-      return data.data;
-    }
+      try {
+        const params = new URLSearchParams({
+          page: page.toString(),
+          page_size: pageSize.toString(),
+          sort_by: sortBy,
+          sort_order: sortOrder,
+          ...(searchTerm ? { search: searchTerm } : {})
+        });
+        
+        console.log(`書籍一覧取得リクエスト: ${params.toString()}`);
+        
+        const { data } = await apiClient.get<PaginatedBooksResponse>(
+          `/api/books?${params.toString()}`
+        );
+        
+        // エラーレスポンスの場合
+        if (!data.success) {
+          throw new Error(data.error || 'データの取得に失敗しました');
+        }
+        
+        return data.data;
+      } catch (err) {
+        console.error('書籍一覧取得エラー:', err);
+        throw err;
+      }
+    },
+    retry: 1 // エラー時に1回だけリトライ
   });
   
   // ページ変更
