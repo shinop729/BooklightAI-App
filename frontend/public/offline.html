@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Booklight AI - あなたの読書をAIが照らす" />
+  <title>Booklight AI - オフライン</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-color: #1a1a2e;
+      color: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 0 20px;
+    }
+    
+    .container {
+      max-width: 600px;
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      color: #4d80e4;
+    }
+    
+    p {
+      font-size: 1.2rem;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+    
+    .icon {
+      font-size: 5rem;
+      margin-bottom: 2rem;
+    }
+    
+    .button {
+      background-color: #4d80e4;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.3s;
+      text-decoration: none;
+      display: inline-block;
+      margin-top: 1rem;
+    }
+    
+    .button:hover {
+      background-color: #3a6bc7;
+    }
+    
+    .tips {
+      margin-top: 3rem;
+      padding: 1.5rem;
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+    }
+    
+    .tips h2 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+      color: #4d80e4;
+    }
+    
+    .tips ul {
+      text-align: left;
+      padding-left: 1.5rem;
+    }
+    
+    .tips li {
+      margin-bottom: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📚</div>
+    <h1>オフラインです</h1>
+    <p>
+      インターネット接続がないため、Booklight AIにアクセスできません。
+      接続が回復したら、アプリケーションは自動的に再接続します。
+    </p>
+    <button class="button" onclick="window.location.reload()">再読み込み</button>
+    
+    <div class="tips">
+      <h2>オフライン時のヒント</h2>
+      <ul>
+        <li>Wi-Fi接続を確認してください</li>
+        <li>モバイルデータ通信が有効になっているか確認してください</li>
+        <li>機内モードがオフになっているか確認してください</li>
+        <li>接続が回復したら、ページを再読み込みしてください</li>
+      </ul>
+    </div>
+    
+    <p style="margin-top: 3rem; font-size: 0.9rem; color: #aaa;">
+      Booklight AI - あなたの読書をAIが照らす
+    </p>
+  </div>
+</body>
+</html>

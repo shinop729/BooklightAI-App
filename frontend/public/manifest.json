@@ -1,0 +1,56 @@
+{
+  "short_name": "Booklight AI",
+  "name": "Booklight AI - あなたの読書をAIが照らす",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1a1a2e",
+  "background_color": "#1a1a2e",
+  "description": "Kindleハイライト情報を収集・管理し、AI技術を活用してユーザーの読書体験を向上させるアプリケーション",
+  "orientation": "portrait",
+  "categories": ["books", "productivity", "education"],
+  "screenshots": [
+    {
+      "src": "screenshot1.png",
+      "sizes": "1280x720",
+      "type": "image/png"
+    },
+    {
+      "src": "screenshot2.png",
+      "sizes": "1280x720",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "検索",
+      "short_name": "検索",
+      "description": "ハイライトを検索",
+      "url": "/search",
+      "icons": [{ "src": "search-icon.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "チャット",
+      "short_name": "チャット",
+      "description": "AIとチャット",
+      "url": "/chat",
+      "icons": [{ "src": "chat-icon.png", "sizes": "192x192" }]
+    }
+  ]
+}

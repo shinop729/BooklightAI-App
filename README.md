@@ -1,75 +1,86 @@
-# Booklight AI - ハイライト自動収集システム
+# Booklight AI
 
-Kindleのハイライト情報を自動的に収集し、Booklight AIアプリケーションと連携するシステムです。
+Kindleハイライト情報を収集・管理し、AI技術を活用してユーザーの読書体験を向上させるアプリケーション
 
 ## プロジェクト構成
 
 このプロジェクトは以下のコンポーネントで構成されています：
 
-1. **FastAPIバックエンド**
-   - Chromeエクステンションからのハイライトデータを受け取り、保存するAPI
-   - 認証機能
-   - ハイライト管理機能
+- **バックエンド**: FastAPI（Python）
+- **フロントエンド**: React + TypeScript（Vite）
+- **Chrome拡張機能**: Kindleハイライト収集用
 
-2. **Chromeエクステンション**
-   - Kindle Web Readerからハイライト情報を収集
-   - オフライン対応
-   - バックエンドAPIとの連携
+## フロントエンド移行について
 
-3. **Streamlitフロントエンド**（既存）
-   - ユーザーインターフェース
-   - ハイライト表示・検索
-   - サマリ生成
+このプロジェクトは、元々Streamlitで実装されていたフロントエンドをReact + TypeScriptに移行中です。移行の主な目的は以下の通りです：
 
-## セットアップ手順
+- UIの柔軟性と拡張性の向上
+- コンポーネントの再利用性の向上
+- パフォーマンスの改善
+- 保守性の向上
 
-### FastAPIバックエンドのセットアップ
+移行計画の詳細は `.clinerules/migration-plan.md` を参照してください。
 
-1. 依存関係のインストール
-   ```bash
-   cd api
-   pip install -r requirements.txt
-   ```
+## 開発環境のセットアップ
 
-2. サーバーの起動
-   ```bash
-   cd api
-   python run.py
-   ```
-   サーバーは http://localhost:8000 で起動します。
+### 前提条件
 
-### Chromeエクステンションのセットアップ
+- Python 3.9以上
+- Node.js 18以上
+- npm 9以上
 
-1. Chromeを開き、`chrome://extensions/` にアクセス
-2. 「デベロッパーモード」を有効化
-3. 「パッケージ化されていない拡張機能を読み込む」をクリック
-4. `chrome-extension` ディレクトリを選択
+### バックエンドのセットアップ
 
-注意: アイコンファイルは含まれていないため、拡張機能のアイコンは表示されません。必要に応じて `chrome-extension/images` ディレクトリに 16x16, 48x48, 128x128 サイズのアイコンファイルを追加してください。
+```bash
+# 仮想環境の作成と有効化
+python -m venv rag-env
+source rag-env/bin/activate  # Windowsの場合: rag-env\Scripts\activate
 
-## 使用方法
+# 依存関係のインストール
+cd api
+pip install -r requirements.txt
 
-1. Chromeエクステンションをインストール
-2. エクステンションのポップアップからログイン
-3. Kindle Web Reader（https://read.amazon.co.jp/）にアクセス
-4. ハイライトを表示するページを開く
-5. エクステンションのポップアップから「ハイライトを収集」ボタンをクリック
-6. 収集されたハイライトはBooklight AIアプリケーションで確認可能
+# 開発サーバーの起動
+uvicorn app.main:app --reload --port 8000
+```
 
-## 開発ステータス
+### フロントエンドのセットアップ
 
-現在の実装は基本的な機能のみを含む初期バージョンです。以下の機能はまだ実装されていません：
+```bash
+# 依存関係のインストール
+cd frontend
+npm install
 
-- 実際のGoogle OAuth認証（現在はダミー認証）
-- Kindle Web ReaderのDOM構造に合わせたセレクタの調整
-- エラーハンドリングの強化
-- セキュリティ強化
-- ユーザーフィードバックの改善
+# 開発サーバーの起動
+npm run dev
+```
 
-## 次のステップ
+### 一括起動スクリプト
 
-1. FastAPIバックエンドの認証機能の完全実装
-2. Kindle Web ReaderのDOM構造の詳細分析と適切なセレクタの実装
-3. エラーハンドリングとオフラインモードの強化
-4. StreamlitアプリケーションとFastAPIバックエンドの連携
-5. セキュリティ強化（HTTPS対応、トークン管理など）
+バックエンドとフロントエンドを同時に起動するには：
+
+```bash
+# 実行権限を付与（初回のみ）
+chmod +x run_dev.sh
+
+# 起動
+./run_dev.sh
+```
+
+## 主な機能
+
+- Google OAuth認証
+- Kindleハイライトの自動収集（Chrome拡張機能）
+- ハイライト検索（ベクトル検索 + BM25）
+- AIチャット機能
+- 書籍サマリー自動生成
+- 書籍一覧表示
+- オフラインサポート
+
+## デプロイ
+
+Herokuへのデプロイ手順は `HEROKU_DEPLOYMENT.md` を参照してください。
+
+## ライセンス
+
+このプロジェクトは独自のライセンスの下で提供されています。
