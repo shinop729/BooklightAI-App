@@ -49,7 +49,7 @@ const Search = () => {
       book_weight: bookWeight,
       use_expanded: useExpanded
     });
-  }, [hybridAlpha, bookWeight, useExpanded, setSearchOptions]);
+  }, [hybridAlpha, bookWeight, useExpanded]);
   
   // クリック外れ検出用のイベントリスナー
   useEffect(() => {

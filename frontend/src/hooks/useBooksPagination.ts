@@ -26,7 +26,7 @@ export const useBooksPagination = () => {
       });
       
       const { data } = await apiClient.get<PaginatedBooksResponse>(
-        `/api/v2/books?${params.toString()}`
+        `/books?${params.toString()}`
       );
       
       return data.data;

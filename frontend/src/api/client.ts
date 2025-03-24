@@ -9,13 +9,29 @@ interface RequestWithRetry extends InternalAxiosRequestConfig {
 /**
  * APIクライアントの設定
  */
+// 環境に応じたベースURLとAPIパスプレフィックスの設定
+const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Heroku環境では自動的に /api プレフィックスが追加されるため、開発環境でのみ追加
+const apiPrefix = baseURL.includes('localhost') ? '/api' : '';
+
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL,
   headers: {
     'Content-Type': 'application/json'
   },
   withCredentials: true
 });
+
+// APIリクエスト時にパスにプレフィックスを追加
+apiClient.interceptors.request.use(
+  (config) => {
+    // URLが既に /api で始まっている場合や、絶対URLの場合はプレフィックスを追加しない
+    if (!config.url?.startsWith('/api') && !config.url?.startsWith('http')) {
+      config.url = `${apiPrefix}${config.url}`;
+    }
+    return config;
+  }
+);
 
 /**
  * リクエストインターセプター（認証トークン付与）
@@ -57,7 +73,7 @@ apiClient.interceptors.response.use(
         if (token) {
           const refreshRequest: TokenRefreshRequest = { token };
           const response = await axios.post<TokenRefreshResponse>(
-            `${apiClient.defaults.baseURL}/auth/token`,
+            `${apiClient.defaults.baseURL}${apiPrefix}/auth/token`,
             refreshRequest,
             { headers: { 'Content-Type': 'application/json' } }
           );

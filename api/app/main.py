@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import json
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
@@ -573,10 +574,107 @@ async def get_current_user(
             detail="ユーザー情報の取得中にエラーが発生しました"
         )
 
+# /api プレフィックス付きのユーザー情報取得エンドポイント
+@app.get("/api/auth/user")
+async def api_get_current_user(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """現在のユーザー情報を返すエンドポイント"""
+    try:
+        # データベースから最新のユーザー情報を取得
+        db_user = db.query(models.User).filter(
+            models.User.username == current_user.username
+        ).first()
+        
+        if not db_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="ユーザーが見つかりません"
+            )
+        
+        return {
+            "id": db_user.id,
+            "name": db_user.full_name,
+            "email": db_user.email,
+            "picture": db_user.picture
+        }
+    except Exception as e:
+        logger.error(f"ユーザー情報取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ユーザー情報の取得中にエラーが発生しました"
+        )
+
 # トークンリフレッシュエンドポイント
 @track_transaction("token_refresh")
 @app.post("/auth/token")
 async def token_refresh_endpoint(request: Request, db: Session = Depends(get_db)):
+    """
+    トークンリフレッシュエンドポイント
+    
+    既存のトークンを検証し、新しいトークンを発行します。
+    """
+    try:
+        # リクエストからトークンを取得
+        data = await request.json()
+        token = data.get("token")
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="トークンが提供されていません"
+            )
+        
+        # トークンをリフレッシュ
+        refresh_result = refresh_access_token(token)
+        
+        # ユーザー情報の取得
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        
+        # データベースからユーザー情報を取得
+        db_user = db.query(models.User).filter(models.User.username == username).first()
+        
+        if not db_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="ユーザーが見つかりません"
+            )
+        
+        # レスポンスの作成
+        return {
+            "access_token": refresh_result["access_token"],
+            "token_type": refresh_result["token_type"],
+            "expires_in": refresh_result["expires_in"],
+            "user_id": username,
+            "email": db_user.email,
+            "full_name": db_user.full_name,
+            "picture": db_user.picture
+        }
+    
+    except HTTPException as e:
+        # 既存のHTTPExceptionはそのまま再送
+        raise e
+    except JWTError as e:
+        logger.warning(f"トークンリフレッシュエラー (JWT): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="無効なトークンです"
+        )
+    except Exception as e:
+        logger.error(f"トークンリフレッシュエラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"トークンリフレッシュエラー: {str(e)}"
+        )
+
+# /api プレフィックス付きのトークンリフレッシュエンドポイント
+@track_transaction("token_refresh")
+@app.post("/api/auth/token")
+async def api_token_refresh_endpoint(request: Request, db: Session = Depends(get_db)):
     """
     トークンリフレッシュエンドポイント
     
@@ -768,3 +866,191 @@ async def auth_error_minimal(
     </body>
     </html>
     """
+
+# ランダムハイライト取得エンドポイント
+@app.get("/highlights/random")
+async def get_random_highlight(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ランダムなハイライトを1件取得するエンドポイント"""
+    try:
+        # ユーザーのハイライトからランダムに1件取得
+        highlight = db.query(models.Highlight).filter(
+            models.Highlight.user_id == current_user.id
+        ).order_by(func.random()).first()
+        
+        if not highlight:
+            return {"success": True, "data": None}
+        
+        # 書籍情報も取得
+        book = db.query(models.Book).filter(models.Book.id == highlight.book_id).first()
+        
+        return {
+            "success": True,
+            "data": {
+                "id": highlight.id,
+                "content": highlight.content,
+                "title": book.title if book else "不明な書籍",
+                "author": book.author if book else "不明な著者",
+                "bookId": highlight.book_id,
+                "location": highlight.location,
+                "createdAt": highlight.created_at.isoformat() if highlight.created_at else None
+            }
+        }
+    except Exception as e:
+        logger.error(f"ランダムハイライト取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ハイライト取得中にエラーが発生しました"
+        )
+
+# /api プレフィックス付きのランダムハイライト取得エンドポイント
+@app.get("/api/highlights/random")
+async def api_get_random_highlight(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ランダムなハイライトを1件取得するエンドポイント"""
+    try:
+        # ユーザーのハイライトからランダムに1件取得
+        highlight = db.query(models.Highlight).filter(
+            models.Highlight.user_id == current_user.id
+        ).order_by(func.random()).first()
+        
+        if not highlight:
+            return {"success": True, "data": None}
+        
+        # 書籍情報も取得
+        book = db.query(models.Book).filter(models.Book.id == highlight.book_id).first()
+        
+        return {
+            "success": True,
+            "data": {
+                "id": highlight.id,
+                "content": highlight.content,
+                "title": book.title if book else "不明な書籍",
+                "author": book.author if book else "不明な著者",
+                "bookId": highlight.book_id,
+                "location": highlight.location,
+                "createdAt": highlight.created_at.isoformat() if highlight.created_at else None
+            }
+        }
+    except Exception as e:
+        logger.error(f"ランダムハイライト取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ハイライト取得中にエラーが発生しました"
+        )
+
+# ユーザー統計情報取得エンドポイント
+@app.get("/user/stats")
+async def get_user_stats(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ユーザーの統計情報を取得するエンドポイント"""
+    try:
+        # 書籍数
+        book_count = db.query(models.Book).filter(
+            models.Book.user_id == current_user.id
+        ).count()
+        
+        # ハイライト数
+        highlight_count = db.query(models.Highlight).filter(
+            models.Highlight.user_id == current_user.id
+        ).count()
+        
+        # 最近の検索キーワード（最大5件）
+        recent_searches = db.query(models.SearchHistory).filter(
+            models.SearchHistory.user_id == current_user.id
+        ).order_by(models.SearchHistory.created_at.desc()).limit(5).all()
+        
+        # 最近のチャット（最大3件）
+        recent_chats = db.query(models.ChatSession).filter(
+            models.ChatSession.user_id == current_user.id
+        ).order_by(models.ChatSession.updated_at.desc()).limit(3).all()
+        
+        return {
+            "success": True,
+            "data": {
+                "bookCount": book_count,
+                "highlightCount": highlight_count,
+                "recentSearches": [
+                    {
+                        "id": search.id,
+                        "query": search.query,
+                        "createdAt": search.created_at.isoformat()
+                    } for search in recent_searches
+                ],
+                "recentChats": [
+                    {
+                        "id": chat.id,
+                        "title": chat.title,
+                        "updatedAt": chat.updated_at.isoformat()
+                    } for chat in recent_chats
+                ]
+            }
+        }
+    except Exception as e:
+        logger.error(f"ユーザー統計情報取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="統計情報取得中にエラーが発生しました"
+        )
+
+# /api プレフィックス付きのユーザー統計情報取得エンドポイント
+@app.get("/api/user/stats")
+async def api_get_user_stats(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ユーザーの統計情報を取得するエンドポイント"""
+    try:
+        # 書籍数
+        book_count = db.query(models.Book).filter(
+            models.Book.user_id == current_user.id
+        ).count()
+        
+        # ハイライト数
+        highlight_count = db.query(models.Highlight).filter(
+            models.Highlight.user_id == current_user.id
+        ).count()
+        
+        # 最近の検索キーワード（最大5件）
+        recent_searches = db.query(models.SearchHistory).filter(
+            models.SearchHistory.user_id == current_user.id
+        ).order_by(models.SearchHistory.created_at.desc()).limit(5).all()
+        
+        # 最近のチャット（最大3件）
+        recent_chats = db.query(models.ChatSession).filter(
+            models.ChatSession.user_id == current_user.id
+        ).order_by(models.ChatSession.updated_at.desc()).limit(3).all()
+        
+        return {
+            "success": True,
+            "data": {
+                "bookCount": book_count,
+                "highlightCount": highlight_count,
+                "recentSearches": [
+                    {
+                        "id": search.id,
+                        "query": search.query,
+                        "createdAt": search.created_at.isoformat()
+                    } for search in recent_searches
+                ],
+                "recentChats": [
+                    {
+                        "id": chat.id,
+                        "title": chat.title,
+                        "updatedAt": chat.updated_at.isoformat()
+                    } for chat in recent_chats
+                ]
+            }
+        }
+    except Exception as e:
+        logger.error(f"ユーザー統計情報取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="統計情報取得中にエラーが発生しました"
+        )
