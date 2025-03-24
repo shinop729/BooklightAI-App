@@ -913,16 +913,41 @@ async def api_get_random_highlight(
 ):
     """ランダムなハイライトを1件取得するエンドポイント"""
     try:
+        # デバッグ情報をログに出力
+        logger.info(f"ランダムハイライト取得リクエスト: ユーザーID={current_user.id}")
+        
         # ユーザーのハイライトからランダムに1件取得
-        highlight = db.query(models.Highlight).filter(
+        highlight_query = db.query(models.Highlight).filter(
             models.Highlight.user_id == current_user.id
-        ).order_by(func.random()).first()
+        )
+        
+        # クエリの実行前にログ出力
+        logger.info(f"ハイライトクエリ: {str(highlight_query)}")
+        
+        # ハイライト数を確認
+        highlight_count = highlight_query.count()
+        logger.info(f"ユーザーのハイライト数: {highlight_count}")
+        
+        if highlight_count == 0:
+            logger.info("ハイライトが見つかりませんでした")
+            return {"success": True, "data": None}
+        
+        # ランダムに1件取得
+        highlight = highlight_query.order_by(func.random()).first()
         
         if not highlight:
+            logger.info("ランダム取得に失敗しました")
             return {"success": True, "data": None}
+        
+        logger.info(f"ハイライト取得成功: ID={highlight.id}")
         
         # 書籍情報も取得
         book = db.query(models.Book).filter(models.Book.id == highlight.book_id).first()
+        
+        if not book:
+            logger.warning(f"書籍情報が見つかりません: book_id={highlight.book_id}")
+        else:
+            logger.info(f"書籍情報取得成功: ID={book.id}, タイトル={book.title}")
         
         return {
             "success": True,
@@ -937,10 +962,18 @@ async def api_get_random_highlight(
             }
         }
     except Exception as e:
+        import traceback
         logger.error(f"ランダムハイライト取得エラー: {e}")
-        raise HTTPException(
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        
+        # エラーレスポンスをJSONで返す（HTTPExceptionではなく）
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ハイライト取得中にエラーが発生しました"
+            content={
+                "success": False,
+                "error": "ハイライト取得中にエラーが発生しました",
+                "message": str(e)
+            }
         )
 
 # ユーザー統計情報取得エンドポイント

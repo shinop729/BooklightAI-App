@@ -71,6 +71,7 @@ USER_INFO_FILE = "user_info.json"
 
 # ユーザーモデル
 class User(BaseModel):
+    id: Optional[int] = None  # id属性を追加
     username: str
     email: Optional[str] = None
     full_name: Optional[str] = None
@@ -126,35 +127,56 @@ def get_user_from_file(user_id: str) -> Optional[Dict]:
 # データベースからユーザーを取得または作成
 def get_or_create_user_in_db(db: Session, user_data: Dict) -> models.User:
     """ユーザーをデータベースから取得、存在しない場合は作成"""
-    username = user_data.get("username")
-    email = user_data.get("email")
-    google_id = user_data.get("google_id")
-    
-    # ユーザーの検索条件
-    if google_id:
-        db_user = db.query(models.User).filter(models.User.google_id == google_id).first()
-    elif email:
-        db_user = db.query(models.User).filter(models.User.email == email).first()
-    elif username:
-        db_user = db.query(models.User).filter(models.User.username == username).first()
-    else:
-        return None
-    
-    # ユーザーが存在しない場合は作成
-    if not db_user:
-        db_user = models.User(
-            username=username,
-            email=email,
-            full_name=user_data.get("full_name"),
-            picture=user_data.get("picture"),
-            google_id=google_id,
-            disabled=0 if not user_data.get("disabled") else 1
-        )
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-    
-    return db_user
+    logger = logging.getLogger("booklight-api")
+    try:
+        username = user_data.get("username")
+        email = user_data.get("email")
+        google_id = user_data.get("google_id")
+        
+        # ユーザーの検索条件
+        db_user = None
+        if google_id:
+            db_user = db.query(models.User).filter(models.User.google_id == google_id).first()
+            if db_user:
+                logger.info(f"Google IDでユーザーを検索: {google_id} -> ユーザーID: {db_user.id}")
+        elif email:
+            db_user = db.query(models.User).filter(models.User.email == email).first()
+            if db_user:
+                logger.info(f"メールアドレスでユーザーを検索: {email} -> ユーザーID: {db_user.id}")
+        elif username:
+            db_user = db.query(models.User).filter(models.User.username == username).first()
+            if db_user:
+                logger.info(f"ユーザー名でユーザーを検索: {username} -> ユーザーID: {db_user.id}")
+        else:
+            logger.error("ユーザー検索に必要な情報がありません")
+            return None
+        
+        # ユーザーが存在しない場合は作成
+        if not db_user:
+            logger.info(f"新規ユーザーを作成: {username}")
+            db_user = models.User(
+                username=username,
+                email=email,
+                full_name=user_data.get("full_name"),
+                picture=user_data.get("picture"),
+                google_id=google_id,
+                disabled=0 if not user_data.get("disabled") else 1
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+            logger.info(f"新規ユーザーを作成しました: {username} -> ユーザーID: {db_user.id}")
+        
+        # ユーザーデータにIDを追加
+        user_data["id"] = db_user.id
+        
+        return db_user
+    except Exception as e:
+        logger.error(f"ユーザーの取得/作成中にエラーが発生: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        # エラーを上位に伝播させる
+        raise
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -163,30 +185,62 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 def get_user(db, username: str, db_session: Session = None):
-    # まずメモリ内のユーザーデータを確認
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
+    """
+    ユーザー情報を取得する関数
     
-    # データベースからユーザーデータを取得
-    if db_session:
-        db_user = db_session.query(models.User).filter(models.User.username == username).first()
-        if db_user:
-            return User(
-                username=db_user.username,
-                email=db_user.email,
-                full_name=db_user.full_name,
-                picture=db_user.picture,
-                google_id=db_user.google_id,
-                disabled=bool(db_user.disabled)
-            )
+    Parameters:
+    - db: メモリ内ユーザーデータ
+    - username: ユーザー名
+    - db_session: データベースセッション
     
-    # 後方互換性のため、ファイルからユーザーデータを取得
-    user_dict = get_user_from_file(username)
-    if user_dict:
-        return UserInDB(**user_dict)
-    
-    return None
+    Returns:
+    - User: ユーザーオブジェクト
+    """
+    logger = logging.getLogger("booklight-api")
+    try:
+        # まずメモリ内のユーザーデータを確認
+        if username in db:
+            user_dict = db[username]
+            # id属性がない場合は0をデフォルト値として設定
+            if "id" not in user_dict:
+                user_dict["id"] = 0
+                logger.warning(f"メモリ内ユーザー {username} にID属性がありません。デフォルト値0を設定します。")
+            return UserInDB(**user_dict)
+        
+        # データベースからユーザーデータを取得
+        if db_session:
+            db_user = db_session.query(models.User).filter(models.User.username == username).first()
+            if db_user:
+                logger.info(f"データベースからユーザー {username} を取得しました。ID: {db_user.id}")
+                return User(
+                    id=db_user.id,  # id属性を設定
+                    username=db_user.username,
+                    email=db_user.email,
+                    full_name=db_user.full_name,
+                    picture=db_user.picture,
+                    google_id=db_user.google_id,
+                    disabled=bool(db_user.disabled)
+                )
+        
+        # 後方互換性のため、ファイルからユーザーデータを取得
+        user_dict = get_user_from_file(username)
+        if user_dict:
+            # id属性がない場合は0をデフォルト値として設定
+            if "id" not in user_dict:
+                user_dict["id"] = 0
+                logger.warning(f"ファイルのユーザー {username} にID属性がありません。デフォルト値0を設定します。")
+            return UserInDB(**user_dict)
+        
+        return None
+    except Exception as e:
+        logger.error(f"ユーザー {username} の取得中にエラーが発生しました: {e}")
+        # エラーが発生した場合でも、最低限の情報を持つユーザーオブジェクトを返す
+        return User(
+            id=0,  # デフォルトID
+            username=username,
+            email=f"{username}@example.com",  # ダミーメール
+            disabled=False
+        )
 
 def authenticate_user(username: str, password: str):
     user = get_user(fake_users_db, username)
@@ -232,19 +286,33 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     return user
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
+    """現在のアクティブユーザーを取得"""
+    logger = logging.getLogger("booklight-api")
+    
     if current_user is None:
+        logger.error("認証されていないユーザーがAPIにアクセスしようとしました")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
     if current_user.disabled:
+        logger.error(f"無効化されたユーザーがAPIにアクセスしようとしました: {current_user.username}")
         raise HTTPException(status_code=400, detail="Inactive user")
+    
+    # id属性がない場合のフォールバック
+    if not hasattr(current_user, 'id') or current_user.id is None:
+        logger.warning(f"ユーザー {current_user.username} にID属性がありません。デフォルト値0を設定します。")
+        current_user.id = 0
+    
+    logger.info(f"アクティブユーザー: {current_user.username} (ID: {current_user.id})")
     return current_user
 
 # Google OAuth認証用の関数
 async def authenticate_with_google(token: str, db: Session = None):
     """Googleトークンを検証してユーザー情報を取得"""
+    logger = logging.getLogger("booklight-api")
     try:
         # IDトークンの検証
         async with httpx.AsyncClient() as client:
@@ -254,6 +322,7 @@ async def authenticate_with_google(token: str, db: Session = None):
             )
             
             if response.status_code != 200:
+                logger.error(f"Google APIからの応答エラー: {response.status_code}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid Google token"
@@ -263,6 +332,7 @@ async def authenticate_with_google(token: str, db: Session = None):
             
             # クライアントIDの検証
             if token_info.get("aud") != GOOGLE_CLIENT_ID:
+                logger.error(f"クライアントID不一致: {token_info.get('aud')} != {GOOGLE_CLIENT_ID}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid client ID"
@@ -280,19 +350,39 @@ async def authenticate_with_google(token: str, db: Session = None):
             
             # データベースにユーザー情報を保存
             if db:
-                db_user = get_or_create_user_in_db(db, user_info)
+                try:
+                    db_user = get_or_create_user_in_db(db, user_info)
+                    # ユーザー情報にIDを追加（get_or_create_user_in_db内でも設定されるが、念のため）
+                    user_info["id"] = db_user.id
+                    logger.info(f"Google認証成功: ユーザー {user_info['username']} (ID: {db_user.id})")
+                except Exception as db_error:
+                    # データベースエラーが発生した場合でも処理を続行
+                    logger.error(f"データベース操作中にエラーが発生: {db_error}")
+                    user_info["id"] = 0  # デフォルトID
+            else:
+                # データベースセッションがない場合
+                logger.warning("データベースセッションがないため、ユーザーIDを設定できません")
+                user_info["id"] = 0  # デフォルトID
             
             # 後方互換性のため、ファイルにも保存
-            user_id = save_user_to_file(user_info)
+            try:
+                user_id = save_user_to_file(user_info)
+                logger.info(f"ユーザー情報をファイルに保存しました: {user_id}")
+            except Exception as file_error:
+                logger.error(f"ファイル保存中にエラーが発生: {file_error}")
             
             return user_info
     
-    except httpx.RequestError:
+    except httpx.RequestError as req_error:
+        logger.error(f"Google API接続エラー: {req_error}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Could not connect to Google API"
+            detail=f"Could not connect to Google API: {str(req_error)}"
         )
     except Exception as e:
+        logger.error(f"認証エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Authentication error: {str(e)}"

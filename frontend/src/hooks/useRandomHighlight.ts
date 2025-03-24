@@ -32,7 +32,8 @@ export const useRandomHighlight = () => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['randomHighlight', refreshIndex],
     queryFn: async (): Promise<RandomHighlight> => {
-      const { data } = await apiClient.get<RandomHighlightResponse>('/highlights/random');
+      // 明示的に/apiプレフィックスを含めることで、apiClient.tsの自動プレフィックス追加を回避
+      const { data } = await apiClient.get<RandomHighlightResponse>('/api/highlights/random');
       return data.data;
     },
     // エラー時のリトライ回数
