@@ -21,7 +21,7 @@ export const useSearchSuggest = (inputValue: string) => {
       }
       
       const { data } = await apiClient.get<SearchSuggestResponse>(
-        `/api/v2/search/suggest?q=${encodeURIComponent(debouncedInput)}`
+        `/search/suggest?q=${encodeURIComponent(debouncedInput)}`
       );
       
       return data.data.suggestions;

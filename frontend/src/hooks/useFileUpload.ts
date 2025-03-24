@@ -36,7 +36,7 @@ export const useFileUpload = () => {
         throw new Error('オフラインです。インターネット接続を確認してください。');
       }
       
-      const { data } = await apiClient.post<FileUploadResponse>('/api/v2/upload', formData, {
+      const { data } = await apiClient.post<FileUploadResponse>('/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

@@ -25,7 +25,7 @@ export const useBookSummary = () => {
     mutationFn: async (bookId: string) => {
       const request: GenerateSummaryRequest = { bookId };
       const { data } = await apiClient.post<GenerateSummaryResponse>(
-        '/api/v2/books/generate-summary',
+        '/books/generate-summary',
         request
       );
       return data.data.summary;

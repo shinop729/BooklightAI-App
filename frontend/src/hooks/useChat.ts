@@ -71,7 +71,7 @@ export const useChat = (options: UseChatOptions = {}) => {
     
     // 新しいメッセージを追加
     const userMessage: ChatMessage = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       role: 'user',
       content,
       timestamp: Date.now()
@@ -80,7 +80,7 @@ export const useChat = (options: UseChatOptions = {}) => {
     
     // AIの応答用プレースホルダー
     const aiMessage: ChatMessage = {
-      id: (Date.now() + 1).toString(),
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
@@ -115,7 +115,7 @@ export const useChat = (options: UseChatOptions = {}) => {
         use_sources: true
       };
       
-      const response = await fetch(`${apiClient.defaults.baseURL}/api/v2/chat`, {
+      const response = await fetch(`${apiClient.defaults.baseURL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

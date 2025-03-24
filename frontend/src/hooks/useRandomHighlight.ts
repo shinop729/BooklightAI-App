@@ -32,7 +32,7 @@ export const useRandomHighlight = () => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['randomHighlight', refreshIndex],
     queryFn: async (): Promise<RandomHighlight> => {
-      const { data } = await apiClient.get<RandomHighlightResponse>('/api/v2/highlights/random');
+      const { data } = await apiClient.get<RandomHighlightResponse>('/highlights/random');
       return data.data;
     },
     // エラー時のリトライ回数

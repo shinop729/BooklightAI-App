@@ -10,7 +10,7 @@ export const useUserStats = () => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['userStats'],
     queryFn: async (): Promise<UserStats> => {
-      const { data } = await apiClient.get<UserStatsResponse>('/api/v2/user/stats');
+      const { data } = await apiClient.get<UserStatsResponse>('/user/stats');
       return data.data;
     },
     // エラー時のリトライ回数

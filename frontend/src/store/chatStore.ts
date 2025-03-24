@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { ChatMessage } from '../hooks/useChat';
+import { ChatMessage } from '../types/chat';
 
 interface ChatSession {
   id: string;
@@ -30,7 +30,7 @@ export const useChatStore = create<ChatStore>()(
       currentSessionId: null,
       
       createSession: (title = '新しい会話') => {
-        const id = Date.now().toString();
+        const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         set(state => ({
           sessions: [
             ...state.sessions,
@@ -64,7 +64,7 @@ export const useChatStore = create<ChatStore>()(
                     ...session.messages,
                     {
                       ...message,
-                      id: Date.now().toString(),
+                      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                       timestamp: Date.now()
                     }
                   ],
