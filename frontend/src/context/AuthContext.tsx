@@ -23,6 +23,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   // 認証状態の復元
   useEffect(() => {
@@ -38,9 +39,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const { data } = await apiClient.get('/auth/user');
         setUser(data);
         setIsAuthenticated(true);
+        setRetryCount(0); // 成功したらリトライカウントをリセット
       } catch (error) {
         console.error('認証状態の復元エラー:', error);
-        // エラー時はトークンをクリア
+        
+        // トークンリフレッシュを試みる
+        if (retryCount < 3) { // 最大3回までリトライ
+          try {
+            const token = localStorage.getItem('token');
+            if (token) {
+              const refreshResult = await apiClient.post('/auth/token', { token });
+              localStorage.setItem('token', refreshResult.data.access_token);
+              setRetryCount(prev => prev + 1);
+              // 再度認証状態を確認
+              const { data } = await apiClient.get('/auth/user');
+              setUser(data);
+              setIsAuthenticated(true);
+              return;
+            }
+          } catch (refreshError) {
+            console.error('トークンリフレッシュエラー:', refreshError);
+          }
+        }
+        
+        // リフレッシュに失敗した場合は認証情報をクリア
         localStorage.removeItem('token');
         setUser(null);
         setIsAuthenticated(false);
@@ -50,7 +72,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     restoreAuth();
-  }, []);
+  }, [retryCount]); // retryCountの変更で再試行
 
   // トークンリフレッシュ
   const refreshToken = async (): Promise<boolean> => {

@@ -541,6 +541,38 @@ async def auth_callback(
         # エラー時は専用のエラーページにリダイレクト
         error_url = f"/auth/error-minimal?error={str(e)}"
         return RedirectResponse(url=error_url)
+# 現在のユーザー情報を取得するエンドポイント
+@app.get("/auth/user")
+async def get_current_user(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """現在のユーザー情報を返すエンドポイント"""
+    try:
+        # データベースから最新のユーザー情報を取得
+        db_user = db.query(models.User).filter(
+            models.User.username == current_user.username
+        ).first()
+        
+        if not db_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="ユーザーが見つかりません"
+            )
+        
+        return {
+            "id": db_user.id,
+            "name": db_user.full_name,
+            "email": db_user.email,
+            "picture": db_user.picture
+        }
+    except Exception as e:
+        logger.error(f"ユーザー情報取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ユーザー情報の取得中にエラーが発生しました"
+        )
+
 # トークンリフレッシュエンドポイント
 @track_transaction("token_refresh")
 @app.post("/auth/token")

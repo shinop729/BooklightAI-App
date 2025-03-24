@@ -19,13 +19,15 @@ import Upload from './pages/Upload';
 
 // 認証が必要なルートのラッパー
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, isAuthenticated } = useAuth();
   
   if (loading) {
     return <div className="flex justify-center items-center h-screen">読み込み中...</div>;
   }
   
-  if (!user) {
+  if (!isAuthenticated || !user) {
+    // 現在のURLをローカルストレージに保存
+    localStorage.setItem('redirect_after_login', window.location.pathname);
     return <Navigate to="/login" replace />;
   }
   
