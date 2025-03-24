@@ -379,7 +379,58 @@ async def auth_callback(
             logger.info(f"クエリパラメータ: {key}={value}")
         
         token = await oauth.google.authorize_access_token(request)
-        user_info = await oauth.google.parse_id_token(request, token)
+        # トークンの内容をログに出力（デバッグ用）
+        logger.info(f"OAuth token: {token}")
+
+        try:
+            # トークンオブジェクトにuserinfoフィールドがある場合はそれを使用
+            if 'userinfo' in token:
+                logger.info("Using userinfo from token")
+                user_info = token['userinfo']
+            # id_tokenがある場合は通常通り処理
+            elif 'id_token' in token:
+                logger.info("Using id_token from token")
+                # トークンからid_tokenを取得して直接デコード
+                id_token = token['id_token']
+                # JWTをデコード
+                import jwt
+                # ヘッダーとペイロード部分のみを取得（署名検証なし）
+                parts = id_token.split('.')
+                if len(parts) >= 2:
+                    # Base64デコード
+                    import base64
+                    import json
+                    # パディングを調整
+                    padded = parts[1] + '=' * (4 - len(parts[1]) % 4)
+                    # デコード
+                    try:
+                        payload = json.loads(base64.b64decode(padded).decode('utf-8'))
+                        user_info = payload
+                        logger.info(f"Decoded JWT payload: {user_info}")
+                    except Exception as jwt_error:
+                        logger.error(f"JWT decode error: {jwt_error}")
+                        # 失敗した場合はuserinfo_endpointを使用
+                        resp = await oauth.google.get('userinfo', token=token)
+                        user_info = resp.json()
+                        logger.info(f"User info from userinfo endpoint (fallback): {user_info}")
+                else:
+                    # トークン形式が不正な場合
+                    logger.error(f"Invalid token format: {id_token}")
+                    resp = await oauth.google.get('userinfo', token=token)
+                    user_info = resp.json()
+                    logger.info(f"User info from userinfo endpoint (fallback): {user_info}")
+            # どちらもない場合はuserinfo_endpointを使用
+            else:
+                logger.info("Using userinfo endpoint")
+                # アクセストークンを使用してユーザー情報を取得
+                resp = await oauth.google.get('userinfo', token=token)
+                user_info = resp.json()
+                logger.info(f"User info from userinfo endpoint: {user_info}")
+        except Exception as e:
+            logger.error(f"User info extraction error: {e}")
+            # エラー時はトークンの内容を詳細にログ出力
+            logger.error(f"Token details: {token}")
+            raise
         
         # ユーザー情報の整形
         user_data = {
@@ -433,9 +484,8 @@ async def auth_callback(
             path="/"
         )
         
-        # 認証成功ページを返す代わりに、専用のサクセスページにリダイレクト
-        # このページはChrome拡張機能用に最適化され、静的ファイルを使用しない
-        success_url = f"/auth/success-minimal?token={access_token}&user={user_data['username']}"
+        # フロントエンドのコールバックページにリダイレクト
+        callback_url = f"{frontend_url}/auth/callback?token={access_token}&user={user_data['username']}"
         
         # ユーザーコンテキストの設定
         set_user_context(user_id=user_data["username"], email=user_data["email"])
@@ -444,7 +494,8 @@ async def auth_callback(
         log_performance_metric("auth_success_rate", 1.0)
         
         # リダイレクト
-        return RedirectResponse(url=success_url)
+        logger.info(f"認証成功後のリダイレクト先: {callback_url}")
+        return RedirectResponse(url=callback_url)
         
     
     except Exception as e:
@@ -635,13 +686,13 @@ async def auth_error_minimal(
         
         <script>
             // エラー情報をコンソールに出力
-            console.error('認証エラー:', '{error}');
+            console.error('認証エラー:', "{error}".replace(/'/g, "\\'"));
             
             // Chrome拡張機能にエラーメッセージを送信
             if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {{
                 chrome.runtime.sendMessage({{
                     action: 'google_auth_error',
-                    error: '{error}'
+                    error: "{error}".replace(/'/g, "\\'")
                 }});
             }}
             
