@@ -124,7 +124,7 @@ function App() {
   
   // オフライン通知
   const OfflineNotification = () => (
-    <div className={`fixed bottom-0 left-0 right-0 bg-yellow-500 text-white p-2 text-center transition-transform duration-300 ${isOnline ? 'translate-y-full' : 'translate-y-0'}`}>
+    <div className={`fixed bottom-0 left-0 right-0 bg-yellow-800 text-white p-2 text-center transition-transform duration-300 ${isOnline ? 'translate-y-full' : 'translate-y-0'}`}>
       現在オフラインモードです。一部の機能が制限されています。
     </div>
   );

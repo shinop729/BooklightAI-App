@@ -67,12 +67,12 @@ const AuthCallback = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-900">
-      <div className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
+      <main className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
         <h1 className="text-2xl font-bold text-white mb-4">Booklight AI</h1>
         <div className="animate-pulse">
           <p className="text-gray-300">{message}</p>
         </div>
-      </div>
+      </main>
     </div>
   );
 };
