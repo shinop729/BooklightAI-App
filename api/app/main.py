@@ -6,11 +6,13 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
 import sys
+import secrets
 import logging
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
+from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -19,8 +21,9 @@ from app.exceptions import setup_exception_handlers, AuthenticationError, Config
 from app.auth import (
     User, authenticate_user, create_access_token, 
     get_current_active_user, authenticate_with_google,
-    ACCESS_TOKEN_EXPIRE_MINUTES, oauth
+    ACCESS_TOKEN_EXPIRE_MINUTES, oauth, SECRET_KEY, ALGORITHM
 )
+from app.auth_utils import refresh_access_token
 from app.url_utils import determine_frontend_url
 from app.monitoring import init_sentry, track_transaction, log_performance_metric
 from database.base import get_db
@@ -101,7 +104,14 @@ logger.info(f"FastAPIアプリを初期化: root_path={'/api' if os.getenv('DYNO
 setup_exception_handlers(app)
 
 # セッションミドルウェアの追加
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("JWT_SECRET_KEY", "fallback-secret-key"))
+session_secret = os.getenv("SESSION_SECRET_KEY", os.getenv("JWT_SECRET_KEY", "fallback-secret-key-please-change-in-production"))
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=session_secret,
+    max_age=3600,  # 1時間
+    same_site="lax",
+    https_only=os.getenv("ENVIRONMENT") == "production"
+)
 
 # ベーシック認証の設定
 security = HTTPBasic()
@@ -280,7 +290,11 @@ async def root():
 # Google OAuth認証関連のエンドポイント
 @app.get("/auth/google")
 @track_transaction("google_oauth_redirect")
-async def login_via_google(request: Request):
+async def login_via_google(
+    request: Request,
+    args: Optional[str] = None,
+    kwargs: Optional[str] = None
+):
     """Google OAuth認証のリダイレクトエンドポイント"""
     # カスタムドメインが最優先
     custom_domain = os.getenv("CUSTOM_DOMAIN")
@@ -301,18 +315,37 @@ async def login_via_google(request: Request):
         redirect_uri = "http://localhost:8000/auth/callback"
         logger.info(f"デフォルトのリダイレクトURI設定: {redirect_uri}")
     
+    # 明示的にセッション状態を設定
+    request.session['oauth_state'] = os.urandom(16).hex()
+    
+    # フロントエンドURLをセッションに保存
+    frontend_url = await determine_frontend_url(request)
+    request.session['frontend_url'] = frontend_url
+    
     logger.info(f"Google認証リダイレクトURI: {redirect_uri}")
+    logger.info(f"セッション状態: {request.session.get('oauth_state')}")
+    logger.info(f"フロントエンドURL: {frontend_url}")
     # 追加デバッグ情報
     logger.info(f"リクエストベースURL: {request.base_url}")
     logger.info(f"環境変数状態: DYNO={os.getenv('DYNO')}, HEROKU_APP_NAME={os.getenv('HEROKU_APP_NAME')}, CUSTOM_DOMAIN={os.getenv('CUSTOM_DOMAIN')}")
     
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    # 明示的にクエリパラメータを追加
+    return await oauth.google.authorize_redirect(
+        request, 
+        redirect_uri=redirect_uri,
+        prompt="consent"
+    )
 
 @app.get("/auth/callback")
 @track_transaction("google_oauth_callback")
 async def auth_callback(
     request: Request,
     response: Response,
+    code: str = None,
+    state: str = None,
+    error: str = None,
+    args: Optional[str] = None,
+    kwargs: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Google OAuth認証のコールバックエンドポイント（DB版）"""
@@ -320,6 +353,26 @@ async def auth_callback(
         logger.info(f"OAuth コールバック受信: {request.url}")
         logger.info(f"クエリパラメータ: {request.query_params}")
         logger.info(f"ヘッダー: Host={request.headers.get('host')}, Origin={request.headers.get('origin')}")
+        logger.info(f"セッション状態: {request.session.get('oauth_state')}")
+        
+        # エラーパラメータのチェック
+        if error:
+            logger.error(f"Google OAuth エラー: {error}")
+            error_url = f"/auth/error-minimal?error={error}"
+            return RedirectResponse(url=error_url)
+        
+        # codeパラメータが存在するか確認
+        if not code:
+            logger.error("認証コードがありません")
+            return RedirectResponse(url="/auth/error-minimal?error=認証コードがありません")
+        
+        # セッションからフロントエンドURLを取得
+        frontend_url = request.session.get('frontend_url')
+        if not frontend_url:
+            frontend_url = await determine_frontend_url(request)
+            logger.info(f"セッションからフロントエンドURLを取得できませんでした。代替: {frontend_url}")
+        else:
+            logger.info(f"セッションからフロントエンドURL取得: {frontend_url}")
         
         # クエリパラメータを直接ログに出力（デバッグ用）
         for key, value in request.query_params.items():
@@ -405,9 +458,79 @@ async def auth_callback(
         # エラー時は専用のエラーページにリダイレクト
         error_url = f"/auth/error-minimal?error={str(e)}"
         return RedirectResponse(url=error_url)
+# トークンリフレッシュエンドポイント
+@app.post("/auth/token")
+@track_transaction("token_refresh")
+async def token_refresh_endpoint(request: Request, db: Session = Depends(get_db)):
+    """
+    トークンリフレッシュエンドポイント
+    
+    既存のトークンを検証し、新しいトークンを発行します。
+    """
+    try:
+        # リクエストからトークンを取得
+        data = await request.json()
+        token = data.get("token")
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="トークンが提供されていません"
+            )
+        
+        # トークンをリフレッシュ
+        refresh_result = refresh_access_token(token)
+        
+        # ユーザー情報の取得
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        
+        # データベースからユーザー情報を取得
+        db_user = db.query(models.User).filter(models.User.username == username).first()
+        
+        if not db_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="ユーザーが見つかりません"
+            )
+        
+        # レスポンスの作成
+        return {
+            "access_token": refresh_result["access_token"],
+            "token_type": refresh_result["token_type"],
+            "expires_in": refresh_result["expires_in"],
+            "user_id": username,
+            "email": db_user.email,
+            "full_name": db_user.full_name,
+            "picture": db_user.picture
+        }
+    
+    except HTTPException as e:
+        # 既存のHTTPExceptionはそのまま再送
+        raise e
+    except JWTError as e:
+        logger.warning(f"トークンリフレッシュエラー (JWT): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="無効なトークンです"
+        )
+    except Exception as e:
+        logger.error(f"トークンリフレッシュエラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"トークンリフレッシュエラー: {str(e)}"
+        )
+
 # 最小限の認証成功ページ（静的ファイルを使用しない）
 @app.get("/auth/success-minimal", response_class=HTMLResponse)
-async def auth_success_minimal(token: str, user: str):
+async def auth_success_minimal(
+    token: str, 
+    user: str,
+    args: Optional[str] = None,
+    kwargs: Optional[str] = None
+):
     """最小限の認証成功ページ（静的ファイルを使用しない）"""
     return f"""
     <!DOCTYPE html>
@@ -478,7 +601,11 @@ async def auth_success_minimal(token: str, user: str):
 
 # 最小限の認証エラーページ（静的ファイルを使用しない）
 @app.get("/auth/error-minimal", response_class=HTMLResponse)
-async def auth_error_minimal(error: str = "不明なエラー"):
+async def auth_error_minimal(
+    error: str = "不明なエラー",
+    args: Optional[str] = None,
+    kwargs: Optional[str] = None
+):
     """最小限の認証エラーページ（静的ファイルを使用しない）"""
     return f"""
     <!DOCTYPE html>

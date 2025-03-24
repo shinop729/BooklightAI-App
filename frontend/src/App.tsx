@@ -9,6 +9,7 @@ import Layout from './components/layout/Layout';
 
 // ページコンポーネント
 import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
 import Home from './pages/Home';
 import Search from './pages/Search';
 import Chat from './pages/Chat';
@@ -48,6 +49,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/auth/success-minimal" element={<AuthCallback />} />
       
       <Route path="/" element={
         <ProtectedRoute>

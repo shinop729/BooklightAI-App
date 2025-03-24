@@ -152,6 +152,44 @@ async function openGoogleAuthTab() {
   }
 }
 
+// トークンリフレッシュ機能
+async function refreshToken() {
+  try {
+    const authData = await chrome.storage.local.get(['authToken']);
+    if (!authData.authToken) {
+      console.log('Booklight AI: 認証トークンがありません');
+      return false;
+    }
+    
+    // APIを使用してトークンをリフレッシュ
+    const response = await fetch(`${API_BASE_URL}/auth/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ token: authData.authToken })
+    });
+    
+    if (!response.ok) {
+      console.log('Booklight AI: トークンリフレッシュに失敗しました', response.status);
+      return false;
+    }
+    
+    const data = await response.json();
+    
+    // 新しいトークンを保存
+    await chrome.storage.local.set({ 
+      'authToken': data.access_token,
+      'authTime': Date.now()
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Booklight AI: トークンリフレッシュエラー', error);
+    return false;
+  }
+}
+
 // トークンの有効性を確認
 async function validateToken() {
   try {
@@ -163,12 +201,12 @@ async function validateToken() {
       return false;
     }
     
-    // トークンの有効期限をチェック（30分）
+    // トークンの有効期限をチェック（25分）
     const now = Date.now();
     const tokenAge = now - (authData.authTime || 0);
-    if (tokenAge > 30 * 60 * 1000) {
-      console.log('Booklight AI: 認証トークンの有効期限が切れています');
-      return false;
+    if (tokenAge > 25 * 60 * 1000) {
+      console.log('Booklight AI: 認証トークンの有効期限が近いため、リフレッシュを試みます');
+      return await refreshToken();
     }
     
     // APIを使用してトークンの有効性を確認（オプション）
@@ -182,6 +220,10 @@ async function validateToken() {
       
       if (!response.ok) {
         console.log('Booklight AI: 認証トークンが無効です', response.status);
+        // 401エラーの場合はリフレッシュを試みる
+        if (response.status === 401) {
+          return await refreshToken();
+        }
         return false;
       }
       
