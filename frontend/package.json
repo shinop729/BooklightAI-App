@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:browser": "node scripts/browser-test.js",
+    "test:performance": "node scripts/performance-audit.js",
+    "test:accessibility": "node scripts/accessibility-check.js",
+    "test:all": "npm run test:performance && npm run test:accessibility",
+    "test:setup": "node scripts/install-test-deps.js"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.69.0",
