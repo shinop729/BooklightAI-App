@@ -1,19 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useBook, useBookHighlights, useFetchCoverImage } from '../hooks/useBooks';
+import { useBookSummary } from '../hooks/useBookSummary';
+import { Highlight } from '../types';
 import HighlightCard from '../components/common/HighlightCard';
+import { useToast } from '../context/ToastContext';
 
 const BookDetail = () => {
   const { title } = useParams<{ title: string }>();
   const decodedTitle = decodeURIComponent(title || '');
+  const { showToast } = useToast();
   
   const { data: book, isLoading: isLoadingBook, error: bookError } = useBook(decodedTitle);
   const { data: highlights = [], isLoading: isLoadingHighlights } = useBookHighlights(book?.id || '');
   const { data: coverUrl } = useFetchCoverImage(book?.title || '', book?.author || '');
+  const { generateSummary, isGenerating, error: summaryError } = useBookSummary();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'location' | 'content'>('location');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+
+  // エラー処理
+  useEffect(() => {
+    if (summaryError) {
+      showToast('error', `サマリー生成エラー: ${summaryError}`);
+    }
+  }, [summaryError, showToast]);
 
   // 検索フィルター
   const filteredHighlights = highlights.filter(
@@ -53,6 +66,15 @@ const BookDetail = () => {
     return sortOrder === 'asc' ? <span className="text-blue-500">↑</span> : <span className="text-blue-500">↓</span>;
   };
 
+  // サマリー生成
+  const handleGenerateSummary = () => {
+    if (book?.id) {
+      generateSummary(book.id);
+      setShowConfirmDialog(false);
+      showToast('info', `「${book.title}」のサマリーを生成中...`);
+    }
+  };
+
   // ローディング表示
   if (isLoadingBook) {
     return (
@@ -78,6 +100,32 @@ const BookDetail = () => {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* 確認ダイアログ */}
+      {showConfirmDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-lg shadow-lg max-w-md w-full">
+            <h3 className="text-xl font-semibold text-white mb-4">サマリー生成の確認</h3>
+            <p className="text-gray-300 mb-6">
+              「{book.title}」のサマリーを生成しますか？この処理には数分かかる場合があります。
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowConfirmDialog(false)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleGenerateSummary}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                生成する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* 書籍情報 */}
       <div className="flex flex-col md:flex-row gap-6 mb-8">
         {/* 表紙画像 */}
@@ -106,10 +154,22 @@ const BookDetail = () => {
             <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm">
               {book.highlightCount}件のハイライト
             </div>
-            {book.summary && (
+            {book.summary ? (
               <div className="bg-green-600 text-white px-3 py-1 rounded-full text-sm">
                 サマリーあり
               </div>
+            ) : (
+              <button
+                onClick={() => setShowConfirmDialog(true)}
+                disabled={isGenerating}
+                className={`px-3 py-1 rounded-full text-sm ${
+                  isGenerating
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                }`}
+              >
+                {isGenerating ? 'サマリー生成中...' : 'サマリーを生成'}
+              </button>
             )}
           </div>
           
@@ -130,7 +190,7 @@ const BookDetail = () => {
               書籍一覧に戻る
             </Link>
             <Link
-              to="/chat"
+              to={`/chat?book=${encodeURIComponent(book.title)}`}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
             >
               この本についてチャットする
@@ -186,7 +246,7 @@ const BookDetail = () => {
           </div>
         ) : sortedHighlights.length > 0 ? (
           <div className="space-y-4">
-            {sortedHighlights.map((highlight, index) => (
+            {sortedHighlights.map((highlight: Highlight, index: number) => (
               <div key={highlight.id} className="relative">
                 <HighlightCard
                   content={highlight.content}

@@ -32,9 +32,20 @@ export interface Highlight {
 export type BooksResponse = ApiResponse<Book[]>;
 
 /**
+ * ページネーション付き書籍一覧データ
+ */
+export interface PaginatedBooks {
+  items: Book[];
+  total: number;
+  total_pages: number;
+  page: number;
+  page_size: number;
+}
+
+/**
  * ページネーション付き書籍一覧レスポンス
  */
-export type PaginatedBooksResponse = PaginatedResponse<Book>;
+export type PaginatedBooksResponse = ApiResponse<PaginatedBooks>;
 
 /**
  * 書籍詳細レスポンス
