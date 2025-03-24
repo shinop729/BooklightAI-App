@@ -1259,8 +1259,56 @@ async def get_books(
             }
         )
 
-# 特定書籍取得エンドポイント
-@app.get("/api/books/{title}")
+# IDによる書籍取得エンドポイント
+@app.get("/api/books/{book_id}")
+async def get_book_by_id(
+    book_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """IDで書籍を取得するエンドポイント"""
+    try:
+        # 書籍の取得（ユーザーIDでフィルタリング）
+        book = db.query(models.Book).filter(
+            models.Book.id == book_id,
+            models.Book.user_id == current_user.id
+        ).first()
+        
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定されたIDの書籍が見つかりません"
+            )
+        
+        # ハイライト数を取得
+        highlight_count = db.query(models.Highlight).filter(
+            models.Highlight.book_id == book.id
+        ).count()
+        
+        return {
+            "success": True,
+            "data": {
+                "id": book.id,
+                "title": book.title,
+                "author": book.author,
+                "highlightCount": highlight_count,
+                "summary": book.summary if hasattr(book, 'summary') else None,
+                "coverUrl": None,  # 表紙画像URLは別途取得
+                "createdAt": book.created_at.isoformat() if hasattr(book, 'created_at') else None
+            }
+        }
+    except HTTPException as e:
+        # HTTPExceptionはそのまま再送
+        raise e
+    except Exception as e:
+        logger.error(f"書籍取得エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="書籍の取得中にエラーが発生しました"
+        )
+
+# タイトルによる書籍取得エンドポイント
+@app.get("/api/books/title/{title}")
 async def get_book_by_title(
     title: str,
     current_user: User = Depends(get_current_active_user),
@@ -1744,16 +1792,22 @@ class ChatRequest(BaseModel):
     stream: bool = False  # ストリーミングレスポンスを使用するかどうか
     use_sources: bool = True  # ソース情報を使用するかどうか
 
+from fastapi.responses import StreamingResponse
+import asyncio
+import json
+
+# RAGサービスのインポート
+from app.rag import RAGService
+
 @app.post("/api/chat")
 async def chat_with_ai(
     request: ChatRequest,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """AIとチャットするエンドポイント"""
+    """AIとチャットするエンドポイント（RAG実装）"""
     try:
         # チャットセッションの作成または取得
-        # 実際の実装では、セッションIDをリクエストから受け取るか、新しいセッションを作成する
         session = db.query(models.ChatSession).filter(
             models.ChatSession.user_id == current_user.id
         ).order_by(models.ChatSession.updated_at.desc()).first()
@@ -1770,37 +1824,107 @@ async def chat_with_ai(
         
         # ユーザーメッセージの保存
         user_messages = [msg for msg in request.messages if msg.role == "user"]
-        if user_messages:
-            last_user_message = user_messages[-1]
-            db_message = models.ChatMessage(
-                content=last_user_message.content,
-                role="user",
-                session_id=session.id
+        if not user_messages:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ユーザーメッセージが含まれていません"
             )
-            db.add(db_message)
-            db.commit()
         
-        # 簡易的なAI応答の生成（実際にはOpenAI APIなどを使用）
-        # ここではダミーの応答を返す
-        ai_response = "申し訳ありませんが、現在AIチャット機能は実装中です。もう少しお待ちください。"
+        last_user_message = user_messages[-1]
+        user_query = last_user_message.content
         
-        # AIメッセージの保存
+        # ユーザーメッセージをDBに保存
         db_message = models.ChatMessage(
-            content=ai_response,
-            role="assistant",
+            content=user_query,
+            role="user",
             session_id=session.id
         )
         db.add(db_message)
         db.commit()
         
-        # セッションの更新日時を更新
-        session.updated_at = datetime.utcnow()
-        db.commit()
+        # 特定の書籍に関する質問かどうかを判断
+        book_title = None
+        for msg in request.messages:
+            if msg.role == "system" and "という本について質問" in msg.content:
+                # システムメッセージから書籍タイトルを抽出
+                import re
+                match = re.search(r'「(.+?)」という本について質問', msg.content)
+                if match:
+                    book_title = match.group(1)
+                    logger.info(f"特定の書籍に関する質問: {book_title}")
+        
+        # RAGサービスの初期化
+        rag_service = RAGService(db, current_user.id)
         
         # ストリーミングレスポンスの場合
         if request.stream:
-            # 実際の実装ではStreamingResponseを使用
-            # ここでは簡易的に通常のレスポンスを返す
+            async def generate_stream():
+                sources = []
+                first_chunk = True
+                
+                # RAGサービスを使用して回答を生成
+                async for chunk, chunk_sources in rag_service.generate_answer(user_query, book_title):
+                    # 最初のチャンクでソース情報を取得
+                    if first_chunk and chunk_sources:
+                        sources = chunk_sources
+                        first_chunk = False
+                    
+                    yield chunk
+                
+                # 回答全体を保存するための変数
+                full_response = ""
+                
+                # RAGサービスを使用して回答を生成（保存用）
+                async for chunk, _ in rag_service.generate_answer(user_query, book_title):
+                    full_response += chunk
+                
+                # AIメッセージをDBに保存
+                db_message = models.ChatMessage(
+                    content=full_response,
+                    role="assistant",
+                    session_id=session.id
+                )
+                db.add(db_message)
+                
+                # セッションの更新日時を更新
+                session.updated_at = datetime.utcnow()
+                db.commit()
+            
+            # ソース情報をヘッダーに含めてストリーミングレスポンスを返す
+            return StreamingResponse(
+                generate_stream(),
+                media_type="text/plain",
+                headers={
+                    "X-Sources": json.dumps([
+                        {
+                            "book_id": source.get("book_id", ""),
+                            "title": source.get("title", ""),
+                            "author": source.get("author", ""),
+                            "content": source.get("content", ""),
+                            "location": source.get("location", "")
+                        } for source in await rag_service.get_relevant_highlights(user_query, 5)
+                    ])
+                }
+            )
+        
+        # 非ストリーミングの場合（同期処理）
+        else:
+            # 簡易的な応答（実際の実装ではRAGサービスを使用）
+            ai_response = "申し訳ありませんが、非ストリーミングモードは現在サポートされていません。streamパラメータをtrueに設定してください。"
+            
+            # AIメッセージをDBに保存
+            db_message = models.ChatMessage(
+                content=ai_response,
+                role="assistant",
+                session_id=session.id
+            )
+            db.add(db_message)
+            
+            # セッションの更新日時を更新
+            session.updated_at = datetime.utcnow()
+            db.commit()
+            
+            # 通常のレスポンス
             return {
                 "success": True,
                 "data": {
@@ -1808,21 +1932,13 @@ async def chat_with_ai(
                     "role": "assistant"
                 }
             }
-        
-        return {
-            "success": True,
-            "data": {
-                "content": ai_response,
-                "role": "assistant"
-            }
-        }
     except Exception as e:
         logger.error(f"チャットエラー: {e}")
         import traceback
         logger.error(f"詳細エラー: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="チャット中にエラーが発生しました"
+            detail=f"チャット中にエラーが発生しました: {str(e)}"
         )
 
 # ファイルアップロード関連エンドポイント

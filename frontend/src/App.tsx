@@ -86,7 +86,7 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       
-      <Route path="/books/:title" element={
+      <Route path="/books/:id" element={
         <ProtectedRoute>
           <Layout>
             <BookDetail />

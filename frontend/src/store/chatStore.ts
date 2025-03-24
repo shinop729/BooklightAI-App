@@ -64,7 +64,7 @@ export const useChatStore = create<ChatStore>()(
                     ...session.messages,
                     {
                       ...message,
-                      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                      id: `${message.role}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                       timestamp: Date.now()
                     }
                   ],

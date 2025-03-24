@@ -13,14 +13,14 @@ export const useBooks = () => {
   });
 };
 
-export const useBook = (title: string) => {
+export const useBook = (id: string) => {
   return useQuery({
-    queryKey: ['book', title],
+    queryKey: ['book', id],
     queryFn: async (): Promise<Book> => {
-      const { data } = await apiClient.get<BookResponse>(`/api/books/${encodeURIComponent(title)}`);
+      const { data } = await apiClient.get<BookResponse>(`/api/books/${id}`);
       return data.data;
     },
-    enabled: !!title
+    enabled: !!id
   });
 };
 

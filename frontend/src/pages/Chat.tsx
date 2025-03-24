@@ -14,7 +14,7 @@ const SourceItem = ({ source }: { source: ChatSource }) => {
         </div>
         {source.book_id && (
           <Link
-            to={`/books/${encodeURIComponent(source.title)}`}
+            to={`/books/${source.book_id}`}
             className="text-blue-400 hover:text-blue-300 text-xs"
           >
             書籍を見る

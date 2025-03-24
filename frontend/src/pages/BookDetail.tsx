@@ -7,11 +7,10 @@ import HighlightCard from '../components/common/HighlightCard';
 import { useToast } from '../context/ToastContext';
 
 const BookDetail = () => {
-  const { title } = useParams<{ title: string }>();
-  const decodedTitle = decodeURIComponent(title || '');
+  const { id } = useParams<{ id: string }>();
   const { showToast } = useToast();
   
-  const { data: book, isLoading: isLoadingBook, error: bookError } = useBook(decodedTitle);
+  const { data: book, isLoading: isLoadingBook, error: bookError } = useBook(id || '');
   const { data: highlights = [], isLoading: isLoadingHighlights } = useBookHighlights(book?.id || '');
   const { data: coverUrl } = useFetchCoverImage(book?.title || '', book?.author || '');
   const { generateSummary, isGenerating, error: summaryError } = useBookSummary();

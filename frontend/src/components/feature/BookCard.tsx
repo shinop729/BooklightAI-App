@@ -19,7 +19,7 @@ export const BookCard: FC<BookCardProps> = ({
   const navigate = useNavigate();
 
   const handleClick = () => {
-    navigate(`/books/${encodeURIComponent(title)}`);
+    navigate(`/books/${id}`);
   };
 
   return (
