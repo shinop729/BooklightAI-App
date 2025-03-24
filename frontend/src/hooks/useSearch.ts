@@ -3,20 +3,33 @@ import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
 import { SearchResult, SearchRequest, SearchResponse } from '../types';
 
+/**
+ * 検索オプション
+ */
+interface SearchOptions {
+  hybrid_alpha?: number; // ベクトル検索の重み（0-1）
+  book_weight?: number; // 書籍情報の重み（0-1）
+  use_expanded?: boolean; // 拡張検索の使用
+  limit?: number; // 結果の最大数
+}
+
 export const useSearch = (initialKeywords: string[] = []) => {
   const [keywords, setKeywords] = useState<string[]>(initialKeywords);
+  const [options, setOptions] = useState<SearchOptions>({
+    hybrid_alpha: 0.7,
+    book_weight: 0.3,
+    use_expanded: true
+  });
   
   // TanStack Query を使用したAPI通信
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['search', keywords],
+    queryKey: ['search', keywords, options],
     queryFn: async () => {
       if (keywords.length === 0) return { results: [] };
       
       const searchRequest: SearchRequest = {
         keywords,
-        hybrid_alpha: 0.7,
-        book_weight: 0.3,
-        use_expanded: true
+        ...options
       };
       
       const { data } = await apiClient.post<SearchResponse>('/api/v2/search', searchRequest);
@@ -41,6 +54,13 @@ export const useSearch = (initialKeywords: string[] = []) => {
     setKeywords([]);
   };
   
+  /**
+   * 検索オプションを設定
+   */
+  const setSearchOptions = (newOptions: SearchOptions) => {
+    setOptions(prev => ({ ...prev, ...newOptions }));
+  };
+  
   return {
     keywords,
     results: data?.results || [],
@@ -49,6 +69,7 @@ export const useSearch = (initialKeywords: string[] = []) => {
     addKeyword,
     removeKeyword,
     clearKeywords,
-    search: refetch
+    search: refetch,
+    setSearchOptions
   };
 };
