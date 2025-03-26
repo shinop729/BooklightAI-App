@@ -97,6 +97,7 @@ const Chat = () => {
   // メッセージ送信
   const handleSendMessage = async () => {
     if (inputValue.trim() && !isLoading) {
+      console.log('メッセージ送信:', inputValue);
       await sendMessage(inputValue);
       setInputValue('');
     }

@@ -69,24 +69,32 @@ export const useChat = (options: UseChatOptions = {}) => {
     setIsLoading(true);
     setError(null);
     
-    // 新しいメッセージを追加
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      role: 'user',
-      content,
-      timestamp: Date.now()
+    // 新しいメッセージを追加（IDはchatStoreで生成）
+    const userMessageData = {
+      role: 'user' as ChatRole,
+      content
     };
-    addMessage(userMessage);
+    const userMessageId = addMessage(userMessageData);
     
-    // AIの応答用プレースホルダー
-    const aiMessage: ChatMessage = {
-      id: `assistant-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      role: 'assistant',
+    if (!userMessageId) {
+      setError('メッセージの追加に失敗しました');
+      setIsLoading(false);
+      return;
+    }
+    
+    // AIの応答用プレースホルダー（IDはchatStoreで生成）
+    const aiMessageData = {
+      role: 'assistant' as ChatRole,
       content: '',
-      timestamp: Date.now(),
       isStreaming: true
     };
-    addMessage(aiMessage);
+    const aiMessageId = addMessage(aiMessageData);
+    
+    if (!aiMessageId) {
+      setError('AIメッセージの追加に失敗しました');
+      setIsLoading(false);
+      return;
+    }
     
     // AbortControllerの設定
     const controller = new AbortController();
@@ -95,6 +103,22 @@ export const useChat = (options: UseChatOptions = {}) => {
     // チャットリクエストの作成
     const systemMessage = createSystemMessage();
     const chatMessages = messages.slice(0, -1); // 最後のAIメッセージを除外
+    
+    // 最新のメッセージを取得
+    const currentSession = sessions.find(s => s.id === currentSessionId);
+    if (!currentSession) {
+      setError('セッションが見つかりません');
+      setIsLoading(false);
+      return;
+    }
+    
+    // ユーザーメッセージを取得
+    const userMessage = currentSession.messages.find(m => m.id === userMessageId);
+    if (!userMessage) {
+      setError('ユーザーメッセージが見つかりません');
+      setIsLoading(false);
+      return;
+    }
     
     const requestMessages = [
       ...(systemMessage ? [systemMessage] : []),
@@ -128,6 +152,8 @@ export const useChat = (options: UseChatOptions = {}) => {
           'Content-Type': 'application/json',
         };
         
+        console.log('チャットリクエスト:', JSON.stringify(chatRequest, null, 2));
+        
         // 開発環境では固定トークンを使用
         if (isDevelopment) {
           // 開発環境でのトークン設定を確認
@@ -153,13 +179,17 @@ export const useChat = (options: UseChatOptions = {}) => {
             console.warn('本番環境: トークンが見つかりません');
           }
         }
+
+        console.log('ヘッダー情報:', headers);
         
         // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
         const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
         // 開発環境では /api プレフィックスを追加
-        const apiPath = baseURL.includes('localhost') ? '/api/chat' : '/chat';
+        const apiPath = '/api/chat';
         const fullUrl = `${baseURL}${apiPath}`;
         console.log('リクエスト先URL:', fullUrl);
+        console.log('リクエスト本文:', JSON.stringify(chatRequest, null, 2));
+        console.log('ヘッダー情報:', JSON.stringify(headers, null, 2));
         
         const response = await fetch(fullUrl, {
           method: 'POST',
@@ -168,6 +198,12 @@ export const useChat = (options: UseChatOptions = {}) => {
           signal: controller.signal,
           credentials: 'include',  // クッキーを含める
           mode: 'cors'  // CORSモードを明示的に指定
+        });
+        
+        console.log('レスポンス受信:', {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries([...response.headers.entries()])
         });
         
         // エラーレスポンスの処理
@@ -232,19 +268,19 @@ export const useChat = (options: UseChatOptions = {}) => {
           
           // メッセージを更新
           console.log('メッセージ更新（チャンク受信時）:', {
-            messageId: aiMessage.id,
+            messageId: aiMessageId,
             contentLength: accumulatedContent.length,
             contentPreview: accumulatedContent.substring(0, 50) + (accumulatedContent.length > 50 ? '...' : '')
           });
           
-          updateMessage(aiMessage.id, {
+          updateMessage(aiMessageId, {
             content: accumulatedContent,
             isStreaming: !done
           });
           
           // 更新後のメッセージを確認
           const updatedSession = useChatStore.getState().sessions.find(s => s.id === currentSessionId);
-          const updatedMessage = updatedSession?.messages.find(m => m.id === aiMessage.id);
+          const updatedMessage = updatedSession?.messages.find(m => m.id === aiMessageId);
           console.log('更新後のメッセージ状態:', {
             found: !!updatedMessage,
             content: updatedMessage?.content?.substring(0, 50) + (updatedMessage?.content && updatedMessage.content.length > 50 ? '...' : ''),
@@ -284,29 +320,50 @@ export const useChat = (options: UseChatOptions = {}) => {
         }
         
         console.log('最終メッセージ更新', { 
-          messageId: aiMessage.id, 
+          messageId: aiMessageId, 
           contentLength: accumulatedContent.length,
           contentPreview: accumulatedContent.substring(0, 50) + (accumulatedContent.length > 50 ? '...' : ''),
           sourcesCount: sources.length 
         });
         
-        // 最終更新
-        updateMessage(aiMessage.id, {
-          content: accumulatedContent,
-          isStreaming: false,
-          sources
-        });
+        // 最終更新 - 空の場合は空文字列を使用し、sourcesも明示的に空配列を設定
+        // 内容が確実に存在することを確認
+        const finalContent = accumulatedContent.trim() ? accumulatedContent : "メッセージを受信できませんでした。";
         
-        // 更新後の最終状態を確認
-        const finalSession = useChatStore.getState().sessions.find(s => s.id === currentSessionId);
-        const finalMessage = finalSession?.messages.find(m => m.id === aiMessage.id);
-        console.log('最終メッセージ状態:', {
-          found: !!finalMessage,
-          content: finalMessage?.content?.substring(0, 50) + (finalMessage?.content && finalMessage.content.length > 50 ? '...' : ''),
-          contentLength: finalMessage?.content?.length || 0,
-          isStreaming: finalMessage?.isStreaming,
-          sourcesCount: finalMessage?.sources?.length || 0
-        });
+        // 最終更新を3回試行（信頼性向上のため）
+        for (let attempt = 0; attempt < 3; attempt++) {
+          console.log(`最終メッセージ更新 試行 ${attempt + 1}/3`);
+          
+          updateMessage(aiMessageId, {
+            content: finalContent,
+            isStreaming: false,
+            sources: sources || []
+          });
+          
+          // 更新後の状態を確認（同期的に実行）
+          const currentState = useChatStore.getState();
+          const currentSession = currentState.sessions.find(s => s.id === currentSessionId);
+          const currentMsg = currentSession?.messages.find(m => m.id === aiMessageId);
+          
+          console.log(`更新確認 試行 ${attempt + 1}/3:`, {
+            found: !!currentMsg,
+            contentLength: currentMsg?.content?.length || 0,
+            isStreaming: currentMsg?.isStreaming,
+            sourcesCount: currentMsg?.sources?.length || 0
+          });
+          
+          // 更新が成功していれば終了
+          if (currentMsg && currentMsg.content && currentMsg.content.length > 0) {
+            console.log('メッセージ更新成功');
+            break;
+          }
+          
+          // 失敗した場合は少し待機してから再試行
+          if (attempt < 2) {
+            console.warn('メッセージ更新失敗、再試行します');
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        }
         
         return true; // ストリーミング成功
       } catch (e) {
@@ -348,8 +405,8 @@ export const useChat = (options: UseChatOptions = {}) => {
         
         // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
         const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
-        // 開発環境では /api プレフィックスを追加
-        const apiPath = baseURL.includes('localhost') ? '/api/chat' : '/chat';
+        // 常に /api プレフィックスを使用
+        const apiPath = '/api/chat';
         console.log('非ストリーミングモード: APIパス =', apiPath);
         
         // apiClientを使用してリクエストを送信
@@ -367,10 +424,10 @@ export const useChat = (options: UseChatOptions = {}) => {
             sourcesCount: sources.length
           });
           
-          updateMessage(aiMessage.id, {
-            content: aiResponse,
+          updateMessage(aiMessageId, {
+            content: aiResponse || "",
             isStreaming: false,
-            sources
+            sources: sources || []
           });
           
           return true; // 非ストリーミング成功
@@ -396,7 +453,7 @@ export const useChat = (options: UseChatOptions = {}) => {
       if (e instanceof Error) {
         setError(e.message);
         // エラーメッセージを表示
-        updateMessage(aiMessage.id, {
+        updateMessage(aiMessageId, {
           content: `エラーが発生しました: ${e.message}`,
           isError: true,
           isStreaming: false

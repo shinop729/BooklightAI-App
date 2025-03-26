@@ -139,6 +139,13 @@ def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
 # CORS設定の改善
 allowed_origins = settings.CORS_ORIGINS
 
+# 開発環境では明示的にポート5173と5174を追加
+if os.getenv("ENVIRONMENT", "development") == "development":
+    if "http://localhost:5173" not in allowed_origins:
+        allowed_origins.append("http://localhost:5173")
+    if "http://localhost:5174" not in allowed_origins:
+        allowed_origins.append("http://localhost:5174")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
