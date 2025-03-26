@@ -62,7 +62,7 @@ export const useChat = (options: UseChatOptions = {}) => {
   }, [bookTitle]);
 
   const sendMessage = useCallback(async (content: string) => {
-    console.log('sendMessage関数が呼び出されました', { content });
+    console.log('sendMessage関数が呼び出されました', { content, sessionId: currentSessionId });
     if (!currentSessionId) {
       console.error('チャットセッションが初期化されていません');
       setError('チャットセッションが初期化されていません');
@@ -72,18 +72,13 @@ export const useChat = (options: UseChatOptions = {}) => {
     setIsLoading(true);
     setError(null);
     
-    // 新しいメッセージを追加（IDはchatStoreで生成）
+    // ユーザーメッセージをストアに追加（UIに表示するため）
+    console.log('ユーザーメッセージをストアに追加:', content);
     const userMessageData = {
       role: 'user' as ChatRole,
       content
     };
-    const userMessageId = addMessage(userMessageData);
-    
-    if (!userMessageId) {
-      setError('メッセージの追加に失敗しました');
-      setIsLoading(false);
-      return;
-    }
+    addMessage(userMessageData);
     
     // AIの応答用プレースホルダー（IDはchatStoreで生成）
     const aiMessageData = {
@@ -99,39 +94,36 @@ export const useChat = (options: UseChatOptions = {}) => {
       return;
     }
     
+    console.log('AIメッセージプレースホルダーを追加:', aiMessageId);
+    
     // AbortControllerの設定
     const controller = new AbortController();
     setAbortController(controller);
     
-    // チャットリクエストの作成
+    // チャットリクエストの作成（ストアを参照せず、直接構築）
     const systemMessage = createSystemMessage();
-    const chatMessages = messages.slice(0, -1); // 最後のAIメッセージを除外
     
-    // 最新のメッセージを取得
-    const currentSession = sessions.find(s => s.id === currentSessionId);
-    if (!currentSession) {
-      setError('セッションが見つかりません');
-      setIsLoading(false);
-      return;
-    }
+    // 現在のセッションのメッセージを取得（最新のAIプレースホルダーを除く）
+    // 注意: ここでは最新のユーザーメッセージはまだストアに反映されていない可能性があるため
+    // 直接contentを使用する
+    const chatMessages = messages.filter(m => m.id !== aiMessageId);
     
-    // ユーザーメッセージを取得
-    const userMessage = currentSession.messages.find(m => m.id === userMessageId);
-    if (!userMessage) {
-      setError('ユーザーメッセージが見つかりません');
-      setIsLoading(false);
-      return;
-    }
+    console.log('会話履歴を構築:', {
+      messagesCount: chatMessages.length,
+      hasSystemMessage: !!systemMessage
+    });
     
+    // リクエストメッセージの構築を簡素化
     const requestMessages = [
       ...(systemMessage ? [systemMessage] : []),
       ...chatMessages.map(m => ({
         role: m.role as ChatRole,
         content: m.content
       })),
+      // 直接ユーザー入力を使用（ストアから取得しない）
       {
-        role: userMessage.role as ChatRole,
-        content: userMessage.content
+        role: 'user' as ChatRole,
+        content
       }
     ];
     
@@ -142,28 +134,34 @@ export const useChat = (options: UseChatOptions = {}) => {
     };
     
     // エンドポイントの定義
-    // ここが重要: API_URLを環境変数から取得し、正しいエンドポイントパスを構築
+    // API_URLは環境変数から取得するが、エンドポイントパスは常に/api/chatを使用
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    const chatEndpoint = `${API_URL}/chat`;
     
     console.log('APIリクエスト準備', {
-      url: chatEndpoint,
+      url: '/api/chat',
       isDev: import.meta.env.DEV,
       apiBaseUrl: API_URL
     });
     
-    // 非ストリーミングモードで試行（従来のAPI使用）
+    // DEV環境ではdev-token-123を使用することを確認
+    if (import.meta.env.DEV) {
+      // 開発環境では明示的に認証ヘッダーを設定
+      apiClient.defaults.headers.common['Authorization'] = 'Bearer dev-token-123';
+    }
+    
+    // リクエストパラメータのログ
+    console.log('リクエスト内容:', {
+      endpoint: '/api/chat',
+      headers: apiClient.defaults.headers,
+      requestBody: { ...chatRequest, stream: false } // 非ストリーミングモード用に設定
+    });
+    
+    // 非ストリーミングモードで試行（優先的に使用）
     try {
       console.log('非ストリーミングモードでリクエスト送信');
       
-      // DEV環境ではdev-token-123を使用することを確認
-      if (import.meta.env.DEV) {
-        // 開発環境では明示的に認証ヘッダーを設定
-        apiClient.defaults.headers.common['Authorization'] = 'Bearer dev-token-123';
-      }
-      
       // リクエストパラメータのログ
-      console.log('リクエスト内容:', {
+      console.log('非ストリーミングリクエスト内容:', {
         endpoint: '/api/chat',
         headers: apiClient.defaults.headers,
         requestBody: { ...chatRequest, stream: false }
@@ -203,12 +201,24 @@ export const useChat = (options: UseChatOptions = {}) => {
             }
           } catch (parseError) {
             console.error('JSONパースエラー:', parseError);
-            throw new Error('レスポンスの解析に失敗しました');
+            
+            // JSONパースに失敗した場合、レスポンスデータをそのまま使用
+            if (typeof response.data === 'string' && response.data.trim()) {
+              console.log('JSONパースに失敗したため、テキストとして処理します');
+              aiResponse = response.data;
+            } else {
+              throw new Error('レスポンスの解析に失敗しました');
+            }
           }
         } else {
           // プレーンテキストの場合
           console.log('テキストレスポンス:', response.data);
           aiResponse = response.data;
+        }
+        
+        // レスポンスが空の場合のデフォルトメッセージ
+        if (!aiResponse || aiResponse.trim() === '') {
+          aiResponse = "レスポンスが空でした。もう一度お試しください。";
         }
         
         // レスポンス内容をログ

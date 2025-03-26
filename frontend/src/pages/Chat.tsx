@@ -106,6 +106,13 @@ const Chat = () => {
         setInputValue('');
       } catch (error) {
         console.error('メッセージ送信中にエラーが発生しました:', error);
+        if (error instanceof Error) {
+          console.error('エラーの詳細:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+          });
+        }
       }
     }
   };
@@ -119,8 +126,14 @@ const Chat = () => {
     setTestResult('リクエスト送信中...');
     
     try {
+      // API URLを環境変数から取得
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const endpoint = `${API_URL}/api/chat`;
+      
+      console.log(`APIエンドポイント: ${endpoint}`);
+      
       // 直接fetchを使用してAPIリクエスト
-      const response = await fetch('http://localhost:8000/api/chat', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -148,17 +161,24 @@ const Chat = () => {
           // JSONレスポンスの場合
           const data = await response.json();
           console.log('JSONレスポンスデータ:', data);
-          setTestResult(`成功: ${JSON.stringify(data).substring(0, 50)}...`);
+          
+          // 成功メッセージを表示
+          if (data.success) {
+            const content = data.data?.message?.content || JSON.stringify(data);
+            setTestResult(`成功: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
+          } else {
+            setTestResult(`エラー: ${data.message || data.error || JSON.stringify(data)}`);
+          }
         } else {
           // プレーンテキストの場合
           const text = await response.text();
           console.log('テキストレスポンス:', text);
-          setTestResult(`成功: ${text}`);
+          setTestResult(`成功: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`);
         }
       } else {
         const errorText = await response.text();
         console.error('APIエラー:', response.status, errorText);
-        setTestResult(`エラー: ${response.status} - ${errorText}`);
+        setTestResult(`エラー (${response.status}): ${errorText}`);
       }
     } catch (error) {
       console.error('例外発生:', error);
@@ -169,7 +189,7 @@ const Chat = () => {
           stack: error.stack
         });
       }
-      setTestResult(`例外: ${error instanceof Error ? error.message : String(error)}`);
+      setTestResult(`接続エラー: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -353,7 +373,10 @@ const Chat = () => {
           </div>
           {error && (
             <div className="mt-2 text-red-500 text-sm">
-              エラーが発生しました。もう一度お試しください。
+              <strong>エラー:</strong> {error}
+              <div className="text-xs mt-1">
+                もう一度お試しいただくか、APIテストボタンでサーバーの状態を確認してください。
+              </div>
             </div>
           )}
           <div className="flex justify-between items-center">
