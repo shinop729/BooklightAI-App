@@ -15,10 +15,14 @@ async def auth_middleware(request: Request, call_next):
     
     すべてのAPIリクエストに対して認証を行い、認証情報をリクエストに添付します。
     """
+    # 開発環境の判定（複数の条件を使用）
+    is_dev_env = settings.DEBUG or os.getenv("ENVIRONMENT") == "development"
+    
     # 開発環境では常に認証をバイパス
-    if settings.DEBUG:
+    if is_dev_env:
         logger.info(f"開発環境: 認証をバイパスします。パス: {request.url.path}")
-        request.state.user = {"sub": "dev-user", "email": "dev@example.com"}
+        # 開発用ユーザー情報を設定
+        request.state.user = {"sub": "dev-user", "email": "dev@example.com", "id": 1}
         return await call_next(request)
     
     # OPTIONSリクエスト（プリフライトリクエスト）は認証なしで許可
@@ -45,16 +49,16 @@ async def auth_middleware(request: Request, call_next):
         
         # 常に開発用トークンを許可する
         logger.info("開発環境用トークンを検出しました。認証をバイパスします。")
-        # リクエストにユーザー情報を添付
-        request.state.user = {"sub": "dev-user", "email": "dev@example.com"}
+        # リクエストにユーザー情報を添付（idフィールドを追加）
+        request.state.user = {"sub": "dev-user", "email": "dev@example.com", "id": 1}
         return await call_next(request)
     
     # 認証ヘッダーがない場合
     if not token:
         # 開発環境では特定のエンドポイントへのアクセスを許可（オプション）
-        if settings.DEBUG and request.url.path in ["/api/auth/user"]:
+        if is_dev_env:
             logger.info(f"開発環境: {request.url.path} へのアクセスを許可")
-            request.state.user = {"sub": "dev-user", "email": "dev@example.com"}
+            request.state.user = {"sub": "dev-user", "email": "dev@example.com", "id": 1}
             return await call_next(request)
         
         logger.warning(f"認証ヘッダーなしでアクセス試行: {request.url.path}")
