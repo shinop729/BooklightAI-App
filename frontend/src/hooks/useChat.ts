@@ -183,49 +183,63 @@ export const useChat = (options: UseChatOptions = {}) => {
         const contentType = response.headers['content-type'];
         console.log('レスポンスのContent-Type:', contentType);
         
-        // レスポンスデータの処理
-        let aiResponse = '';
-        let sources: ChatSource[] = [];
-        
-        if (contentType && contentType.includes('application/json')) {
-          // JSONレスポンスの場合
-          try {
-            const jsonData = JSON.parse(response.data);
-            console.log('JSONレスポンスデータ:', jsonData);
-            
-            if (jsonData.success) {
-              aiResponse = jsonData.data.message.content;
-              sources = jsonData.data.sources || [];
-            } else {
-              throw new Error(jsonData.message || jsonData.error || '不明なエラー');
-            }
-          } catch (parseError) {
-            console.error('JSONパースエラー:', parseError);
-            
-            // JSONパースに失敗した場合、レスポンスデータをそのまま使用
-            if (typeof response.data === 'string' && response.data.trim()) {
-              console.log('JSONパースに失敗したため、テキストとして処理します');
-              aiResponse = response.data;
-            } else {
-              throw new Error('レスポンスの解析に失敗しました');
-            }
+      // レスポンスデータの処理
+      let aiResponse = '';
+      let sources: ChatSource[] = [];
+      
+      if (contentType && contentType.includes('application/json')) {
+        // JSONレスポンスの場合
+        try {
+          const jsonData = JSON.parse(response.data);
+          console.log('JSONレスポンスデータ:', jsonData);
+          
+          if (jsonData.success) {
+            aiResponse = jsonData.data.message.content;
+            sources = jsonData.data.sources || [];
+          } else {
+            throw new Error(jsonData.message || jsonData.error || '不明なエラー');
           }
-        } else {
-          // プレーンテキストの場合
-          console.log('テキストレスポンス:', response.data);
-          aiResponse = response.data;
+        } catch (parseError) {
+          console.error('JSONパースエラー:', parseError);
+          
+          // JSONパースに失敗した場合、レスポンスデータをそのまま使用
+          if (typeof response.data === 'string' && response.data.trim()) {
+            console.log('JSONパースに失敗したため、テキストとして処理します');
+            aiResponse = response.data;
+          } else {
+            throw new Error('レスポンスの解析に失敗しました');
+          }
         }
+      } else {
+        // プレーンテキストの場合
+        console.log('テキストレスポンス:', response.data);
+        aiResponse = response.data;
+        
+        // X-Sourcesヘッダーからsources情報を取得
+        const sourcesHeader = response.headers['x-sources'];
+        console.log('X-Sourcesヘッダー:', sourcesHeader);
+        
+        if (sourcesHeader) {
+          try {
+            sources = JSON.parse(sourcesHeader);
+            console.log('X-Sourcesヘッダーから引用元情報を取得:', sources);
+          } catch (parseError) {
+            console.error('X-Sourcesヘッダーの解析エラー:', parseError);
+          }
+        }
+      }
         
         // レスポンスが空の場合のデフォルトメッセージ
         if (!aiResponse || aiResponse.trim() === '') {
           aiResponse = "レスポンスが空でした。もう一度お試しください。";
         }
         
-        // レスポンス内容をログ
-        console.log('AIレスポンス:', {
-          contentLength: aiResponse?.length || 0,
-          sourcesCount: sources.length
-        });
+      // レスポンス内容をログ
+      console.log('AIレスポンス:', {
+        contentLength: aiResponse?.length || 0,
+        sourcesCount: sources.length,
+        sources: sources
+      });
         
         // メッセージを更新
         updateMessage(aiMessageId, {
