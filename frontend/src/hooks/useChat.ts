@@ -158,21 +158,11 @@ export const useChat = (options: UseChatOptions = {}) => {
         
         console.log('チャットリクエスト:', JSON.stringify(chatRequest, null, 2));
         
-        // 開発環境では固定トークンを使用
+        // apiClientと同様の認証トークン処理
         if (isDevelopment) {
-          // 開発環境でのトークン設定を確認
-          const storedToken = localStorage.getItem('token');
-          console.log('開発環境: localStorage内のトークン:', storedToken);
-          
-          // 常に固定トークンを使用
+          // 開発環境では常に固定トークンを使用
           headers['Authorization'] = `Bearer dev-token-123`;
           console.log('開発環境: 固定トークンをヘッダーに設定しました');
-          
-          // localStorage内のトークンが開発用トークンと異なる場合は更新
-          if (storedToken !== 'dev-token-123') {
-            console.log('開発環境: localStorage内のトークンを更新します');
-            localStorage.setItem('token', 'dev-token-123');
-          }
         } else {
           // 本番環境では保存されたトークンを使用
           const token = localStorage.getItem('token');
@@ -197,6 +187,7 @@ export const useChat = (options: UseChatOptions = {}) => {
         console.log('ヘッダー情報:', JSON.stringify(headers, null, 2));
         
         // fetchを使用してストリーミングリクエストを送信
+        console.log('fetchリクエスト送信直前');
         const response = await fetch(fullUrl, {
           method: 'POST',
           headers,
@@ -205,6 +196,7 @@ export const useChat = (options: UseChatOptions = {}) => {
           credentials: 'include',  // クッキーを含める
           mode: 'cors'  // CORSモードを明示的に指定
         });
+        console.log('fetchリクエスト送信成功');
         
         console.log('レスポンス受信:', {
           status: response.status,
@@ -396,18 +388,7 @@ export const useChat = (options: UseChatOptions = {}) => {
           stream: false
         };
         
-        // 開発環境かどうかを確認
-        const isDevelopment = import.meta.env.DEV;
-        
-        // 開発環境では固定トークンを使用
-        if (isDevelopment) {
-          // localStorage内のトークンが開発用トークンと異なる場合は更新
-          const storedToken = localStorage.getItem('token');
-          if (storedToken !== 'dev-token-123') {
-            console.log('非ストリーミングモード: 開発環境でトークンを更新します');
-            localStorage.setItem('token', 'dev-token-123');
-          }
-        }
+        // apiClientが自動的に認証トークンを処理するため、ここでの処理は不要
         
         console.log('非ストリーミングモード: リクエスト =', JSON.stringify(nonStreamingRequest, null, 2));
         
@@ -415,9 +396,10 @@ export const useChat = (options: UseChatOptions = {}) => {
         // apiClientのbaseURLを確認
         console.log('apiClient baseURL:', apiClient.defaults.baseURL);
         
-        // 直接エンドポイントを指定
-        const response = await apiClient.post('http://localhost:8000/api/chat', nonStreamingRequest);
-        console.log('非ストリーミングモード: レスポンス =', response.status, response.statusText);
+        // apiClientを使用してリクエストを送信
+        console.log('非ストリーミングモード: リクエスト送信直前');
+        const response = await apiClient.post('/api/chat', nonStreamingRequest);
+        console.log('非ストリーミングモード: レスポンス =', response.status, response.statusText, response.data);
         
         if (response.data.success) {
           const aiResponse = response.data.data.message.content;
