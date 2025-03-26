@@ -171,7 +171,7 @@ class RAGService:
                             def __init__(self, documents):
                                 self.documents = documents
                             
-                            def similarity_search_with_score(self, query, k=5):
+                            def similarity_search_with_score(self, query, k=30):
                                 # 単純なキーワードマッチング
                                 results = []
                                 for doc in self.documents:
@@ -194,7 +194,7 @@ class RAGService:
                                 self.vector_store = vector_store
                             
                             def get_relevant_documents(self, query):
-                                results = self.vector_store.similarity_search_with_score(query, k=5)
+                                results = self.vector_store.similarity_search_with_score(query, k=30)
                                 return [doc for doc, _ in results]
                             
                             def _get_relevant_documents(self, query):
@@ -291,7 +291,7 @@ class RAGService:
             # 検索用のリトリーバーを作成
             retriever = self.vector_store.as_retriever(
                 search_type="similarity",
-                search_kwargs={"k": 5}
+                search_kwargs={"k": 30}
             )
             
             # 特定の書籍に限定する場合
@@ -307,11 +307,11 @@ class RAGService:
             
             # プロンプトテンプレートを作成
             prompt = ChatPromptTemplate.from_template("""
-            あなたは書籍のハイライト情報に基づいて質問に答えるアシスタントです。
-            以下のハイライト情報を参考にして、ユーザーの質問に答えてください。
-            
-            ハイライト情報に基づいた回答を心がけ、情報がない場合は正直に「その情報はハイライトにありません」と伝えてください。
-            引用元の書籍名、著者名、ページ番号などを回答の中で適切に言及してください。
+            ・あなたは書籍のハイライト情報に基づいて質問に答えるアシスタントです。
+            ・以下のハイライト情報を参考にして、ユーザーの質問に詳細に答えてください。
+            ・このセクションではハイライト情報を参考にしつつ、新たな独自の視点を付け加えてください        
+            ・ハイライト情報からの学びを元にしつつ、質問者に新たな気づきを与えるような回答を心がけてください 
+            ・自然な会話になるように意識してください                                        
             
             ハイライト:
             {context}

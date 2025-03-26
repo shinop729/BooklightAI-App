@@ -80,7 +80,6 @@ const Chat = () => {
   const bookParam = searchParams.get('book');
   const [inputValue, setInputValue] = useState('');
   const [showSources, setShowSources] = useState<Record<string, boolean>>({});
-  const [testResult, setTestResult] = useState<string | null>(null);
   
   const { 
     messages, 
@@ -97,104 +96,43 @@ const Chat = () => {
 
   // メッセージ送信
   const handleSendMessage = async () => {
-    if (inputValue.trim() && !isLoading) {
-      console.log('メッセージ送信:', inputValue);
-      try {
-        console.log('sendMessage関数を呼び出し中...');
-        await sendMessage(inputValue);
-        console.log('sendMessage関数の呼び出しが完了しました');
-        setInputValue('');
-      } catch (error) {
-        console.error('メッセージ送信中にエラーが発生しました:', error);
-        if (error instanceof Error) {
-          console.error('エラーの詳細:', {
-            name: error.name,
-            message: error.message,
-            stack: error.stack
-          });
-        }
-      }
-    }
-  };
+    // トリム後の入力値をチェック
+    const trimmedMessage = inputValue.trim();
+    
+    // 入力値が空または読み込み中の場合は送信しない
+    if (!trimmedMessage || isLoading) return;
 
-  // APIリクエストテスト
-  const testApiRequest = async () => {
-    // 入力フィールドから値を取得
-    const testMessage = inputValue.trim() || "テストメッセージ";
+    // 送信するメッセージを一時保存
+    const messageToSend = trimmedMessage;
     
-    console.log('テストAPIリクエスト開始:', testMessage);
-    setTestResult('リクエスト送信中...');
-    
+    // 先にinputValueをクリア
+    setInputValue('');
+
     try {
-      // API URLを環境変数から取得
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const endpoint = `${API_URL}/api/chat`;
-      
-      console.log(`APIエンドポイント: ${endpoint}`);
-      
-      // 直接fetchを使用してAPIリクエスト
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer dev-token-123'
-        },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: testMessage }],
-          stream: false,
-          use_sources: true
-        })
-      });
-      
-      console.log('APIレスポンス受信:', {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries([...response.headers])
-      });
-      
-      if (response.ok) {
-        // Content-Typeヘッダーをチェック
-        const contentType = response.headers.get('content-type');
-        console.log('レスポンスのContent-Type:', contentType);
-        
-        if (contentType && contentType.includes('application/json')) {
-          // JSONレスポンスの場合
-          const data = await response.json();
-          console.log('JSONレスポンスデータ:', data);
-          
-          // 成功メッセージを表示
-          if (data.success) {
-            const content = data.data?.message?.content || JSON.stringify(data);
-            setTestResult(`成功: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
-          } else {
-            setTestResult(`エラー: ${data.message || data.error || JSON.stringify(data)}`);
-          }
-        } else {
-          // プレーンテキストの場合
-          const text = await response.text();
-          console.log('テキストレスポンス:', text);
-          setTestResult(`成功: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`);
-        }
-      } else {
-        const errorText = await response.text();
-        console.error('APIエラー:', response.status, errorText);
-        setTestResult(`エラー (${response.status}): ${errorText}`);
-      }
+      console.log('メッセージ送信:', messageToSend);
+      console.log('sendMessage関数を呼び出し中...');
+      await sendMessage(messageToSend);
+      console.log('sendMessage関数の呼び出しが完了しました');
     } catch (error) {
-      console.error('例外発生:', error);
+      // エラー発生時は入力値を元に戻す
+      setInputValue(messageToSend);
+      
+      console.error('メッセージ送信中にエラーが発生しました:', error);
       if (error instanceof Error) {
-        console.error('エラー詳細:', {
+        console.error('エラーの詳細:', {
           name: error.name,
           message: error.message,
           stack: error.stack
         });
       }
-      setTestResult(`接続エラー: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   // Enterキーでメッセージ送信（Shift+Enterは改行）
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // IME変換中は処理しない
+    if (e.nativeEvent.isComposing) return;
+    
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -270,22 +208,14 @@ const Chat = () => {
                           message.content
                         ) : (
                           message.isStreaming ? (
-                            <span className="text-gray-400 italic">メッセージを受信中...</span>
+                            <span className="text-gray-400 italic">回答を生成しています...</span>
                           ) : (
                             <span className="text-gray-400 italic">メッセージを受信できませんでした</span>
                           )
                         )}
                       </div>
                       
-                      {/* デバッグ情報 - 開発環境でのみ表示 */}
-                      {import.meta.env.DEV && (
-                        <div className="mt-1 p-1 bg-gray-900 rounded text-xs text-gray-500">
-                          <div>ID: {message.id}</div>
-                          <div>Content Length: {message.content?.length || 0}</div>
-                          <div>Sources: {message.sources?.length || 0}</div>
-                          <div>Streaming: {message.isStreaming ? 'Yes' : 'No'}</div>
-                        </div>
-                      )}
+                      {/* デバッグ情報を削除 */}
                       
                       <div className="flex justify-between items-center mt-2">
                         <div
@@ -375,27 +305,13 @@ const Chat = () => {
             <div className="mt-2 text-red-500 text-sm">
               <strong>エラー:</strong> {error}
               <div className="text-xs mt-1">
-                もう一度お試しいただくか、APIテストボタンでサーバーの状態を確認してください。
+                もう一度お試しください。
               </div>
             </div>
           )}
-          <div className="flex justify-between items-center">
-            <div className="text-gray-400 text-xs">
-              Shift+Enterで改行、Enterで送信
-            </div>
-            <button
-              onClick={testApiRequest}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm"
-              type="button"
-            >
-              APIテスト
-            </button>
+          <div className="text-gray-400 text-xs mt-2">
+            Shift+Enterで改行、Enterで送信
           </div>
-          {testResult && (
-            <div className={`mt-2 text-sm ${testResult.startsWith('成功') ? 'text-green-500' : 'text-yellow-500'}`}>
-              {testResult}
-            </div>
-          )}
         </div>
       </div>
     </div>
