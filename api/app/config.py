@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Booklight AI API"
     VERSION: str = "0.1.0"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
-    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() in ["true", "1", "yes"]
     
     # データベース設定
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./booklight.db")

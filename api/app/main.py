@@ -147,6 +147,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 認証ミドルウェアの追加
+from app.middleware import auth_middleware
+app.middleware("http")(auth_middleware)
+
 # 特定のパスのみに認証を適用するミドルウェア
 @app.middleware("http")
 async def basic_auth_middleware(request: Request, call_next):
@@ -577,7 +581,8 @@ async def get_current_user(
 # /api プレフィックス付きのユーザー情報取得エンドポイント
 @app.get("/api/auth/user")
 async def api_get_current_user(
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
+    current_user: User = Depends(lambda: get_current_active_user(request=request)),
     db: Session = Depends(get_db)
 ):
     """現在のユーザー情報を返すエンドポイント"""
@@ -626,7 +631,21 @@ async def token_refresh_endpoint(request: Request, db: Session = Depends(get_db)
                 detail="トークンが提供されていません"
             )
         
-        # トークンをリフレッシュ
+        # 開発環境用トークンの特別処理
+        if token == "dev-token-123":
+            logger.info("開発環境用トークンを検出しました。特別な処理を行います。")
+            # 開発用ユーザー情報を返す
+            return {
+                "access_token": "dev-token-123",
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # 秒単位
+                "user_id": "dev-user",
+                "email": "dev@example.com",
+                "full_name": "開発ユーザー",
+                "picture": None
+            }
+        
+        # 通常のトークンリフレッシュ処理
         refresh_result = refresh_access_token(token)
         
         # ユーザー情報の取得
@@ -691,7 +710,21 @@ async def api_token_refresh_endpoint(request: Request, db: Session = Depends(get
                 detail="トークンが提供されていません"
             )
         
-        # トークンをリフレッシュ
+        # 開発環境用トークンの特別処理
+        if token == "dev-token-123":
+            logger.info("開発環境用トークンを検出しました。特別な処理を行います。")
+            # 開発用ユーザー情報を返す
+            return {
+                "access_token": "dev-token-123",
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # 秒単位
+                "user_id": "dev-user",
+                "email": "dev@example.com",
+                "full_name": "開発ユーザー",
+                "picture": None
+            }
+        
+        # 通常のトークンリフレッシュ処理
         refresh_result = refresh_access_token(token)
         
         # ユーザー情報の取得
@@ -1802,9 +1835,9 @@ from app.rag import RAGService
 @app.post("/api/chat")
 async def chat_with_ai(
     request: ChatRequest,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
-    req: Request = None
+    req: Request,
+    current_user: User = Depends(lambda: get_current_active_user(request=req)),
+    db: Session = Depends(get_db)
 ):
     """AIとチャットするエンドポイント（RAG実装）"""
     try:

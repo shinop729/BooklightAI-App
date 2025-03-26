@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from database.base import get_db
 import database.models as models
+from app.config import settings
 
 # 環境変数の読み込み
 load_dotenv()
@@ -291,34 +292,54 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     
     # 開発環境かどうかを確認
     is_development = os.getenv("ENVIRONMENT", "development") != "production"
+    debug_mode = os.getenv("DEBUG", "").lower() in ["true", "1", "yes"]
     
-    # 開発環境での特別なトークン処理
-    if is_development:
+    # 環境変数の値をログに出力
+    logger.info(f"環境変数DEBUG: {os.getenv('DEBUG', '未設定')}")
+    logger.info(f"settings.DEBUG: {settings.DEBUG}")
+    logger.info(f"開発環境: {is_development}, デバッグモード: {debug_mode}")
+    
+    # 開発用トークンの検出
+    # 現在のトークンを取得（get_current_userの内部実装に依存）
+    current_token = None
+    try:
+        # FastAPIのリクエストスコープからトークンを取得
+        from fastapi.security.utils import get_authorization_scheme_param
+        
         # requestパラメータがある場合はヘッダーをチェック
         if request:
             auth_header = request.headers.get("Authorization")
-            if auth_header and "Bearer dev-token-123" in auth_header:
-                logger.info("開発環境用トークンを検出しました。認証をバイパスします。")
-                # 開発環境用のダミーユーザーを返す
-                return User(
-                    id=1,
-                    username="dev_user",
-                    email="dev@example.com",
-                    full_name="開発ユーザー",
-                    disabled=False
-                )
-        
-        # 開発環境では認証なしでもアクセス可能に
-        if current_user is None:
-            logger.info("開発環境で認証なしアクセス。開発用ユーザーを返します。")
-            # 開発環境用のダミーユーザーを返す
-            return User(
-                id=1,
-                username="dev_user",
-                email="dev@example.com",
-                full_name="開発ユーザー",
-                disabled=False
-            )
+            if auth_header:
+                scheme, param = get_authorization_scheme_param(auth_header)
+                if scheme.lower() == "bearer":
+                    current_token = param
+                    logger.info(f"リクエストヘッダーからトークンを取得: {current_token[:10]}...")
+    except Exception as e:
+        logger.error(f"トークン取得エラー: {e}")
+    
+    # 開発用トークンの場合は常に認証をバイパス
+    if current_token == "dev-token-123":
+        logger.info("開発環境用トークンを検出しました。認証をバイパスします。")
+        # 開発環境用のダミーユーザーを返す
+        return User(
+            id=1,
+            username="dev_user",
+            email="dev@example.com",
+            full_name="開発ユーザー",
+            disabled=False
+        )
+    
+    # 開発環境では認証なしでもアクセス可能に（トークンがない場合）
+    if (is_development or debug_mode or settings.DEBUG) and current_user is None:
+        logger.info("開発環境で認証なしアクセス。開発用ユーザーを返します。")
+        # 開発環境用のダミーユーザーを返す
+        return User(
+            id=1,
+            username="dev_user",
+            email="dev@example.com",
+            full_name="開発ユーザー",
+            disabled=False
+        )
     
     # 本番環境では通常の認証チェック
     if current_user is None:

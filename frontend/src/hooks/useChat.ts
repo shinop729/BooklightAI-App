@@ -123,24 +123,45 @@ export const useChat = (options: UseChatOptions = {}) => {
         const isDevelopment = import.meta.env.DEV;
         console.log('環境情報:', { isDevelopment, baseURL: apiClient.defaults.baseURL });
         
-        // ヘッダーの設定（開発環境では認証トークンをデフォルト値に）
+        // fetchを使用してリクエストを送信（axiosはストリーミングに対応していないため）
         const headers: Record<string, string> = {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         };
         
-        // 認証トークンの取得
-        const token = localStorage.getItem('token');
-        console.log('認証トークン:', { token: token ? '存在します' : 'ありません' });
-        
-        // 開発環境では固定トークンを使用、本番環境では通常のトークンを使用
+        // 開発環境では固定トークンを使用
         if (isDevelopment) {
-          headers['Authorization'] = 'Bearer dev-token-123'; // 開発環境用の固定トークン
-        } else if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
+          // 開発環境でのトークン設定を確認
+          const storedToken = localStorage.getItem('token');
+          console.log('開発環境: localStorage内のトークン:', storedToken);
+          
+          // 常に固定トークンを使用
+          headers['Authorization'] = `Bearer dev-token-123`;
+          console.log('開発環境: 固定トークンをヘッダーに設定しました');
+          
+          // localStorage内のトークンが開発用トークンと異なる場合は更新
+          if (storedToken !== 'dev-token-123') {
+            console.log('開発環境: localStorage内のトークンを更新します');
+            localStorage.setItem('token', 'dev-token-123');
+          }
+        } else {
+          // 本番環境では保存されたトークンを使用
+          const token = localStorage.getItem('token');
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+            console.log('本番環境: 保存されたトークンをヘッダーに設定しました');
+          } else {
+            console.warn('本番環境: トークンが見つかりません');
+          }
         }
         
-        // apiClientを使用してリクエストを送信
-        const response = await fetch(`${apiClient.defaults.baseURL}/api/chat`, {
+        // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
+        // baseURLが既に/apiを含んでいるかチェック
+        const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
+        const apiPath = baseURL.includes('/api') ? '/chat' : '/api/chat';
+        const fullUrl = `${baseURL}${apiPath}`;
+        console.log('リクエスト先URL:', fullUrl);
+        
+        const response = await fetch(fullUrl, {
           method: 'POST',
           headers,
           body: JSON.stringify(chatRequest),
@@ -149,13 +170,22 @@ export const useChat = (options: UseChatOptions = {}) => {
         
         // エラーレスポンスの処理
         if (!response.ok) {
+          // レスポンスの詳細情報をログに出力
+          console.error('APIエラーレスポンス:', {
+            status: response.status,
+            statusText: response.statusText,
+            headers: Object.fromEntries([...response.headers.entries()]),
+          });
+          
           // JSONレスポンスの取得を試みる
           try {
             const errorData = await response.json();
+            console.error('APIエラー詳細:', errorData);
             throw new Error(errorData.message || errorData.error || `API error: ${response.status}`);
           } catch (jsonError) {
             // JSONとして解析できない場合はステータスコードのみ
-            throw new Error(`API error: ${response.status}`);
+            console.error('JSONパースエラー:', jsonError);
+            throw new Error(`API error: ${response.status} ${response.statusText}`);
           }
         }
         
@@ -301,12 +331,38 @@ export const useChat = (options: UseChatOptions = {}) => {
           stream: false
         };
         
+        // 開発環境かどうかを確認
+        const isDevelopment = import.meta.env.DEV;
+        
+        // 開発環境では固定トークンを使用
+        if (isDevelopment) {
+          // localStorage内のトークンが開発用トークンと異なる場合は更新
+          const storedToken = localStorage.getItem('token');
+          if (storedToken !== 'dev-token-123') {
+            console.log('非ストリーミングモード: 開発環境でトークンを更新します');
+            localStorage.setItem('token', 'dev-token-123');
+          }
+        }
+        
+        // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
+        const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
+        const apiPath = baseURL.includes('/api') ? '/chat' : '/api/chat';
+        console.log('非ストリーミングモード: APIパス =', apiPath);
+        
         // apiClientを使用してリクエストを送信
-        const response = await apiClient.post('/api/chat', nonStreamingRequest);
+        const response = await apiClient.post(apiPath, nonStreamingRequest);
+        
+        console.log('非ストリーミングレスポンス:', response.status, response.statusText);
         
         if (response.data.success) {
           const aiResponse = response.data.data.message.content;
           const sources = response.data.data.sources || [];
+          
+          console.log('非ストリーミングレスポンス内容:', {
+            contentLength: aiResponse?.length || 0,
+            contentPreview: aiResponse?.substring(0, 50) + (aiResponse?.length > 50 ? '...' : ''),
+            sourcesCount: sources.length
+          });
           
           updateMessage(aiMessage.id, {
             content: aiResponse,
@@ -316,6 +372,7 @@ export const useChat = (options: UseChatOptions = {}) => {
           
           return true; // 非ストリーミング成功
         } else {
+          console.error('非ストリーミングエラーレスポンス:', response.data);
           throw new Error(response.data.error || response.data.message || '不明なエラー');
         }
       } catch (e) {

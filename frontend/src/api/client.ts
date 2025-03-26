@@ -38,6 +38,19 @@ apiClient.interceptors.request.use(
  */
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // 開発環境かどうかを確認
+    const isDevelopment = import.meta.env.DEV;
+    
+    // 開発環境では常に開発用トークンを使用
+    if (isDevelopment) {
+      if (config.headers) {
+        config.headers.Authorization = `Bearer dev-token-123`;
+        console.log('開発環境: 固定トークンをヘッダーに設定しました');
+      }
+      return config;
+    }
+    
+    // 本番環境では通常のトークン処理
     const token = localStorage.getItem('token');
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;

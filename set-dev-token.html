@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>開発用トークン設定</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .card {
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>開発用トークン設定</h1>
+    <div class="card">
+        <p>このページは、開発環境用のトークンをローカルストレージに設定します。</p>
+        <button id="setToken">トークンを設定</button>
+        <p id="status"></p>
+    </div>
+
+    <script>
+        document.getElementById('setToken').addEventListener('click', function() {
+            // 開発環境用トークンを設定
+            localStorage.setItem('token', 'dev-token-123');
+            
+            // ステータスを表示
+            document.getElementById('status').innerHTML = '<span class="success">トークンが設定されました。</span><br>ローカルストレージに <strong>dev-token-123</strong> が保存されました。<br><br>3秒後にチャットページにリダイレクトします...';
+            
+            // 3秒後にチャットページにリダイレクト
+            setTimeout(function() {
+                window.location.href = 'http://localhost:5173/chat';
+            }, 3000);
+        });
+    </script>
+</body>
+</html>

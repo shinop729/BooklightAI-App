@@ -28,8 +28,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // 認証状態の復元
   useEffect(() => {
     const restoreAuth = async () => {
-      // 開発環境での自動ログイン機能を一時的に無効化（リダイレクトループ問題の解決のため）
       console.log('認証状態の復元を開始');
+      
+      // 開発環境かどうかを確認
+      const isDevelopment = import.meta.env.DEV;
+      console.log('環境情報:', { isDevelopment, baseURL: apiClient.defaults.baseURL });
+      
+      // 開発環境では自動的に開発用トークンを設定
+      if (isDevelopment) {
+        console.log('開発環境を検出: 開発用トークンを設定します');
+        localStorage.setItem('token', 'dev-token-123');
+        
+        // 開発環境用のダミーユーザー情報を設定
+        setUser({
+          id: '1',
+          name: '開発ユーザー',
+          email: 'dev@example.com',
+          picture: undefined
+        });
+        setIsAuthenticated(true);
+        setLoading(false);
+        return;
+      }
       
       try {
         const token = localStorage.getItem('token');
@@ -58,10 +78,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
       }
     };
-
-    // ローカルストレージのクリアを削除
-    // localStorage.clear();
-    // console.log('ローカルストレージをクリアしました');
     
     restoreAuth();
   }, []); // 依存配列を空にして初回のみ実行
