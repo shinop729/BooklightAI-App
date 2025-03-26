@@ -10,19 +10,5 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// サービスワーカーを登録（PWAサポート）
-serviceWorkerRegistration.register({
-  onUpdate: (registration) => {
-    // 新しいバージョンがダウンロードされた場合
-    const waitingServiceWorker = registration.waiting;
-    if (waitingServiceWorker) {
-      waitingServiceWorker.addEventListener('statechange', (event) => {
-        // @ts-ignore
-        if (event.target?.state === 'activated') {
-          window.location.reload();
-        }
-      });
-      waitingServiceWorker.postMessage({ type: 'SKIP_WAITING' });
-    }
-  },
-});
+// サービスワーカーを一時的に無効化（無限リロード問題の解決のため）
+serviceWorkerRegistration.unregister();

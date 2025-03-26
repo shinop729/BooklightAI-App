@@ -59,6 +59,12 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
     
+    // トークンリフレッシュエンドポイントへのリクエストの場合は再試行しない
+    if (originalRequest.url?.includes('/auth/token')) {
+      console.log('トークンリフレッシュエンドポイントへのリクエストはリトライしません');
+      return Promise.reject(error);
+    }
+    
     // 認証エラー（401）かつリトライしていない場合
     if (
       error.response && 
@@ -71,6 +77,7 @@ apiClient.interceptors.response.use(
         // トークンリフレッシュを試みる
         const token = localStorage.getItem('token');
         if (token) {
+          console.log('トークンリフレッシュを試みます');
           const refreshRequest: TokenRefreshRequest = { token };
           const response = await axios.post<TokenRefreshResponse>(
             `${apiClient.defaults.baseURL}${apiPrefix}/auth/token`,
@@ -81,6 +88,7 @@ apiClient.interceptors.response.use(
           // 新しいトークンを保存
           const newToken = response.data.data.access_token;
           localStorage.setItem('token', newToken);
+          console.log('トークンリフレッシュ成功、リクエストを再試行します');
           
           // 元のリクエストを再試行
           if (originalRequest.headers) {

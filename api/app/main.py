@@ -1803,28 +1803,23 @@ from app.rag import RAGService
 async def chat_with_ai(
     request: ChatRequest,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    req: Request = None
 ):
     """AIとチャットするエンドポイント（RAG実装）"""
     try:
-        # チャットセッションの作成または取得
-        session = db.query(models.ChatSession).filter(
-            models.ChatSession.user_id == current_user.id
-        ).order_by(models.ChatSession.updated_at.desc()).first()
+        # リクエストの検証とログ出力
+        logger.info(f"チャットリクエスト受信: ユーザーID={current_user.id}, ストリーミング={request.stream}")
         
-        if not session:
-            # 新しいセッションを作成
-            session = models.ChatSession(
-                title="新しい会話",
-                user_id=current_user.id
-            )
-            db.add(session)
-            db.commit()
-            db.refresh(session)
+        # 詳細なデバッグ情報
+        logger.debug(f"リクエスト内容: {request}")
+        logger.debug(f"OpenAI APIキー設定状況: {'設定済み' if settings.OPENAI_API_KEY else '未設定'}")
+        logger.debug(f"環境: {settings.ENVIRONMENT}")
         
-        # ユーザーメッセージの保存
+        # ユーザーメッセージの検証
         user_messages = [msg for msg in request.messages if msg.role == "user"]
         if not user_messages:
+            logger.warning("ユーザーメッセージが含まれていないリクエスト")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="ユーザーメッセージが含まれていません"
@@ -1832,15 +1827,49 @@ async def chat_with_ai(
         
         last_user_message = user_messages[-1]
         user_query = last_user_message.content
+        logger.info(f"ユーザークエリ: {user_query[:50]}...")
         
-        # ユーザーメッセージをDBに保存
-        db_message = models.ChatMessage(
-            content=user_query,
-            role="user",
-            session_id=session.id
-        )
-        db.add(db_message)
-        db.commit()
+        # トランザクション開始
+        try:
+            # チャットセッションの作成または取得
+            session = db.query(models.ChatSession).filter(
+                models.ChatSession.user_id == current_user.id
+            ).order_by(models.ChatSession.updated_at.desc()).first()
+            
+            if not session:
+                logger.info(f"新しいチャットセッションを作成: ユーザーID={current_user.id}")
+                # 新しいセッションを作成
+                session = models.ChatSession(
+                    title="新しい会話",
+                    user_id=current_user.id
+                )
+                db.add(session)
+                db.commit()
+                db.refresh(session)
+            
+            # ユーザーメッセージをDBに保存
+            db_message = models.ChatMessage(
+                content=user_query,
+                role="user",
+                session_id=session.id
+            )
+            db.add(db_message)
+            db.commit()
+            logger.info(f"ユーザーメッセージをDBに保存: セッションID={session.id}")
+            
+        except Exception as db_error:
+            logger.error(f"データベース操作エラー: {db_error}")
+            db.rollback()
+            import traceback
+            logger.error(f"DB詳細エラー: {traceback.format_exc()}")
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "success": False,
+                    "error": "データベース操作中にエラーが発生しました",
+                    "message": str(db_error)
+                }
+            )
         
         # 特定の書籍に関する質問かどうかを判断
         book_title = None
@@ -1854,27 +1883,218 @@ async def chat_with_ai(
                     logger.info(f"特定の書籍に関する質問: {book_title}")
         
         # RAGサービスの初期化
-        rag_service = RAGService(db, current_user.id)
+        try:
+            logger.info("RAGサービスを初期化")
+            rag_service = RAGService(db, current_user.id)
+            
+            # ベクトルストアが初期化されているか確認
+            if rag_service.vector_store is None:
+                logger.warning(f"ユーザーID {current_user.id} のベクトルストアが初期化されていません")
+                
+                # ユーザーのハイライト数を確認
+                highlight_count = db.query(models.Highlight).filter(
+                    models.Highlight.user_id == current_user.id
+                ).count()
+                logger.info(f"ユーザーID {current_user.id} のハイライト数: {highlight_count}")
+                
+                # エラーメッセージをDBに保存
+                error_message = "申し訳ありません。ハイライトデータが見つからないか、ベクトルストアの初期化に失敗しました。ハイライトをアップロードしてから再度お試しください。"
+                
+                # ハイライトがない場合は具体的なメッセージを表示
+                highlight_count = db.query(models.Highlight).filter(
+                    models.Highlight.user_id == current_user.id
+                ).count()
+                
+                if highlight_count == 0:
+                    error_message = "ハイライトデータが見つかりません。「アップロード」ページからハイライトをアップロードしてください。"
+                else:
+                    error_message = "ベクトルストアの初期化に失敗しました。システム管理者にお問い合わせください。"
+                try:
+                    db_message = models.ChatMessage(
+                        content=error_message,
+                        role="assistant",
+                        session_id=session.id
+                    )
+                    db.add(db_message)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                
+                # クライアントにエラーメッセージを返す（HTTPエラーではなく正常なレスポンス）
+                return {
+                    "success": True,
+                    "data": {
+                        "message": {
+                            "role": "assistant",
+                            "content": error_message
+                        },
+                        "sources": []
+                    }
+                }
+        except Exception as rag_error:
+            logger.error(f"RAGサービス初期化エラー: {rag_error}")
+            import traceback
+            logger.error(f"RAG詳細エラー: {traceback.format_exc()}")
+            
+            # OpenAI APIキーの有効性を確認
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=settings.OPENAI_API_KEY)
+                client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": "Test"}],
+                    max_tokens=5
+                )
+                logger.info("OpenAI APIキーは有効です")
+            except Exception as api_error:
+                logger.error(f"OpenAI APIキーエラー: {api_error}")
+                error_message = f"OpenAI APIキーが無効か、APIリクエストに問題があります: {str(api_error)}"
+            
+            # エラーメッセージをDBに保存
+            error_message = f"申し訳ありません。AIサービスの初期化中にエラーが発生しました: {str(rag_error)}"
+            try:
+                db_message = models.ChatMessage(
+                    content=error_message,
+                    role="assistant",
+                    session_id=session.id
+                )
+                db.add(db_message)
+                db.commit()
+            except Exception:
+                db.rollback()
+            
+            # クライアントにエラーメッセージを返す（HTTPエラーではなく正常なレスポンス）
+            return {
+                "success": True,
+                "data": {
+                    "message": {
+                        "role": "assistant",
+                        "content": error_message
+                    },
+                    "sources": []
+                }
+            }
         
         # ストリーミングレスポンスの場合
         if request.stream:
-            async def generate_stream():
-                sources = []
-                first_chunk = True
-                
-                # RAGサービスを使用して回答を生成
-                async for chunk, chunk_sources in rag_service.generate_answer(user_query, book_title):
-                    # 最初のチャンクでソース情報を取得
-                    if first_chunk and chunk_sources:
-                        sources = chunk_sources
-                        first_chunk = False
+            try:
+                async def generate_stream():
+                    sources = []
+                    first_chunk = True
+                    full_response = ""
                     
-                    yield chunk
+                    try:
+                        logger.info(f"ストリーミングモードで回答生成開始: クエリ='{user_query[:50]}...'")
+                        # RAGサービスを使用して回答を生成
+                        async for chunk, chunk_sources in rag_service.generate_answer(user_query, book_title):
+                            # 最初のチャンクでソース情報を取得
+                            if first_chunk and chunk_sources:
+                                sources = chunk_sources
+                                first_chunk = False
+                            
+                            full_response += chunk
+                            yield chunk
+                        
+                        # AIメッセージをDBに保存
+                        try:
+                            db_message = models.ChatMessage(
+                                content=full_response,
+                                role="assistant",
+                                session_id=session.id
+                            )
+                            db.add(db_message)
+                            
+                            # セッションの更新日時を更新
+                            session.updated_at = datetime.utcnow()
+                            db.commit()
+                            logger.info(f"AIレスポンスをDBに保存: セッションID={session.id}, 長さ={len(full_response)}")
+                        except Exception as save_error:
+                            logger.error(f"レスポンス保存エラー: {save_error}")
+                            db.rollback()
+                    
+                    except Exception as stream_error:
+                        logger.error(f"ストリーミング生成エラー: {stream_error}")
+                        import traceback
+                        logger.error(f"ストリーミング詳細エラー: {traceback.format_exc()}")
+                        error_message = f"回答の生成中にエラーが発生しました: {str(stream_error)}"
+                        yield error_message
+                        
+                        # エラーメッセージをDBに保存
+                        try:
+                            db_message = models.ChatMessage(
+                                content=error_message,
+                                role="assistant",
+                                session_id=session.id
+                            )
+                            db.add(db_message)
+                            db.commit()
+                        except Exception:
+                            db.rollback()
                 
-                # 回答全体を保存するための変数
+                # 関連ハイライトを取得（同期的に呼び出し）
+                relevant_highlights = []
+                try:
+                    relevant_highlights = rag_service.get_relevant_highlights(user_query, 5)
+                    logger.info(f"関連ハイライト取得成功: {len(relevant_highlights)}件")
+                    
+                    # ハイライトの詳細をログに出力
+                    for i, highlight in enumerate(relevant_highlights):
+                        logger.debug(f"ハイライト {i+1}: タイトル='{highlight.get('title', 'なし')}', スコア={highlight.get('score', 0)}")
+                except Exception as highlights_error:
+                    logger.error(f"関連ハイライト取得エラー: {highlights_error}")
+                    import traceback
+                    logger.error(f"ハイライト詳細エラー: {traceback.format_exc()}")
+                
+                # ソース情報をヘッダーに含めてストリーミングレスポンスを返す
+                logger.info("ストリーミングレスポンスを開始")
+                
+                # ソース情報をJSON文字列に変換
+                sources_json = json.dumps([
+                    {
+                        "book_id": source.get("book_id", ""),
+                        "title": source.get("title", ""),
+                        "author": source.get("author", ""),
+                        "content": source.get("content", ""),
+                        "location": source.get("location", "")
+                    } for source in relevant_highlights
+                ])
+                
+                logger.info(f"ソース情報ヘッダー: {sources_json[:100]}...")
+                
+                # CORSヘッダーを追加
+                headers = {
+                    "X-Sources": sources_json,
+                    "Access-Control-Expose-Headers": "X-Sources"
+                }
+                
+                return StreamingResponse(
+                    generate_stream(),
+                    media_type="text/plain",
+                    headers=headers
+                )
+            
+            except Exception as stream_setup_error:
+                logger.error(f"ストリーミングセットアップエラー: {stream_setup_error}")
+                import traceback
+                logger.error(f"ストリーミングセットアップ詳細エラー: {traceback.format_exc()}")
+                return JSONResponse(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    content={
+                        "success": False,
+                        "error": "ストリーミングの設定中にエラーが発生しました",
+                        "message": str(stream_setup_error)
+                    }
+                )
+        
+        # 非ストリーミングの場合
+        else:
+            try:
+                logger.info("非ストリーミングモードでの回答生成を開始")
+                # 関連ハイライトを取得
+                relevant_highlights = await rag_service.get_relevant_highlights(user_query, 5)
+                
+                # 非ストリーミングでの回答生成
                 full_response = ""
-                
-                # RAGサービスを使用して回答を生成（保存用）
                 async for chunk, _ in rag_service.generate_answer(user_query, book_title):
                     full_response += chunk
                 
@@ -1889,56 +2109,85 @@ async def chat_with_ai(
                 # セッションの更新日時を更新
                 session.updated_at = datetime.utcnow()
                 db.commit()
-            
-            # ソース情報をヘッダーに含めてストリーミングレスポンスを返す
-            return StreamingResponse(
-                generate_stream(),
-                media_type="text/plain",
-                headers={
-                    "X-Sources": json.dumps([
-                        {
-                            "book_id": source.get("book_id", ""),
-                            "title": source.get("title", ""),
-                            "author": source.get("author", ""),
-                            "content": source.get("content", ""),
-                            "location": source.get("location", "")
-                        } for source in await rag_service.get_relevant_highlights(user_query, 5)
-                    ])
+                logger.info(f"非ストリーミングレスポンスをDBに保存: 長さ={len(full_response)}")
+                
+                # 通常のレスポンス
+                return {
+                    "success": True,
+                    "data": {
+                        "message": {
+                            "role": "assistant",
+                            "content": full_response
+                        },
+                        "sources": [
+                            {
+                                "book_id": source.get("book_id", ""),
+                                "title": source.get("title", ""),
+                                "author": source.get("author", ""),
+                                "content": source.get("content", ""),
+                                "location": source.get("location", "")
+                            } for source in relevant_highlights
+                        ]
+                    }
                 }
-            )
-        
-        # 非ストリーミングの場合（同期処理）
-        else:
-            # 簡易的な応答（実際の実装ではRAGサービスを使用）
-            ai_response = "申し訳ありませんが、非ストリーミングモードは現在サポートされていません。streamパラメータをtrueに設定してください。"
             
-            # AIメッセージをDBに保存
-            db_message = models.ChatMessage(
-                content=ai_response,
-                role="assistant",
-                session_id=session.id
-            )
-            db.add(db_message)
-            
-            # セッションの更新日時を更新
-            session.updated_at = datetime.utcnow()
-            db.commit()
-            
-            # 通常のレスポンス
-            return {
-                "success": True,
-                "data": {
-                    "content": ai_response,
-                    "role": "assistant"
-                }
-            }
+            except Exception as non_stream_error:
+                logger.error(f"非ストリーミング処理エラー: {non_stream_error}")
+                import traceback
+                logger.error(f"非ストリーミング詳細エラー: {traceback.format_exc()}")
+                
+                # エラーメッセージをDBに保存
+                error_message = f"回答の生成中にエラーが発生しました: {str(non_stream_error)}"
+                try:
+                    db_message = models.ChatMessage(
+                        content=error_message,
+                        role="assistant",
+                        session_id=session.id
+                    )
+                    db.add(db_message)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                
+                return JSONResponse(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    content={
+                        "success": False,
+                        "error": "回答の生成中にエラーが発生しました",
+                        "message": str(non_stream_error),
+                        "data": {
+                            "message": {
+                                "role": "assistant",
+                                "content": error_message
+                            },
+                            "sources": []
+                        }
+                    }
+                )
+    
+    except HTTPException as http_error:
+        # HTTPExceptionはそのまま再送
+        logger.warning(f"HTTPエラー: {http_error.detail}")
+        raise http_error
+    
     except Exception as e:
-        logger.error(f"チャットエラー: {e}")
+        logger.error(f"チャットエンドポイント全体エラー: {e}")
         import traceback
         logger.error(f"詳細エラー: {traceback.format_exc()}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"チャット中にエラーが発生しました: {str(e)}"
+            content={
+                "success": False,
+                "error": "チャット処理中にエラーが発生しました",
+                "message": str(e),
+                "data": {
+                    "message": {
+                        "role": "assistant",
+                        "content": f"申し訳ありません。エラーが発生しました: {str(e)}"
+                    },
+                    "sources": []
+                }
+            }
         )
 
 # ファイルアップロード関連エンドポイント

@@ -285,10 +285,42 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         raise credentials_exception
     return user
 
-async def get_current_active_user(current_user: User = Depends(get_current_user)):
+async def get_current_active_user(current_user: User = Depends(get_current_user), request: Request = None):
     """現在のアクティブユーザーを取得"""
     logger = logging.getLogger("booklight-api")
     
+    # 開発環境かどうかを確認
+    is_development = os.getenv("ENVIRONMENT", "development") != "production"
+    
+    # 開発環境での特別なトークン処理
+    if is_development:
+        # requestパラメータがある場合はヘッダーをチェック
+        if request:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and "Bearer dev-token-123" in auth_header:
+                logger.info("開発環境用トークンを検出しました。認証をバイパスします。")
+                # 開発環境用のダミーユーザーを返す
+                return User(
+                    id=1,
+                    username="dev_user",
+                    email="dev@example.com",
+                    full_name="開発ユーザー",
+                    disabled=False
+                )
+        
+        # 開発環境では認証なしでもアクセス可能に
+        if current_user is None:
+            logger.info("開発環境で認証なしアクセス。開発用ユーザーを返します。")
+            # 開発環境用のダミーユーザーを返す
+            return User(
+                id=1,
+                username="dev_user",
+                email="dev@example.com",
+                full_name="開発ユーザー",
+                disabled=False
+            )
+    
+    # 本番環境では通常の認証チェック
     if current_user is None:
         logger.error("認証されていないユーザーがAPIにアクセスしようとしました")
         raise HTTPException(

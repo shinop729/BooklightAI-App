@@ -28,51 +28,43 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // 認証状態の復元
   useEffect(() => {
     const restoreAuth = async () => {
+      // 開発環境での自動ログイン機能を一時的に無効化（リダイレクトループ問題の解決のため）
+      console.log('認証状態の復元を開始');
+      
       try {
         const token = localStorage.getItem('token');
         if (!token) {
+          console.log('トークンが見つかりません');
           setLoading(false);
           return;
         }
 
-        // トークンの有効性を確認
-        const { data } = await apiClient.get('/auth/user');
-        setUser(data);
-        setIsAuthenticated(true);
-        setRetryCount(0); // 成功したらリトライカウントをリセット
-      } catch (error) {
-        console.error('認証状態の復元エラー:', error);
-        
-        // トークンリフレッシュを試みる
-        if (retryCount < 3) { // 最大3回までリトライ
-          try {
-            const token = localStorage.getItem('token');
-            if (token) {
-              const refreshResult = await apiClient.post('/auth/token', { token });
-              localStorage.setItem('token', refreshResult.data.access_token);
-              setRetryCount(prev => prev + 1);
-              // 再度認証状態を確認
-              const { data } = await apiClient.get('/auth/user');
-              setUser(data);
-              setIsAuthenticated(true);
-              return;
-            }
-          } catch (refreshError) {
-            console.error('トークンリフレッシュエラー:', refreshError);
-          }
+        // トークンの有効性を確認（一度だけ試行）
+        try {
+          console.log('トークンの有効性を確認中...');
+          const { data } = await apiClient.get('/auth/user');
+          console.log('ユーザー情報取得成功:', data);
+          setUser(data);
+          setIsAuthenticated(true);
+        } catch (error) {
+          console.error('認証状態の復元エラー:', error);
+          
+          // トークンが無効な場合は認証情報をクリア
+          localStorage.removeItem('token');
+          setUser(null);
+          setIsAuthenticated(false);
         }
-        
-        // リフレッシュに失敗した場合は認証情報をクリア
-        localStorage.removeItem('token');
-        setUser(null);
-        setIsAuthenticated(false);
       } finally {
         setLoading(false);
       }
     };
 
+    // ローカルストレージのクリアを削除
+    // localStorage.clear();
+    // console.log('ローカルストレージをクリアしました');
+    
     restoreAuth();
-  }, [retryCount]); // retryCountの変更で再試行
+  }, []); // 依存配列を空にして初回のみ実行
 
   // トークンリフレッシュ
   const refreshToken = async (): Promise<boolean> => {
@@ -128,6 +120,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(null);
       setIsAuthenticated(false);
       localStorage.removeItem('token');
+      console.log('ログアウト完了');
     } catch (error) {
       console.error('ログアウトエラー:', error);
     }

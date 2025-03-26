@@ -25,6 +25,7 @@
   "devDependencies": {
     "@axe-core/puppeteer": "^4.10.1",
     "@eslint/js": "^9.21.0",
+    "@playwright/test": "^1.51.1",
     "@types/node": "^22.13.11",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",

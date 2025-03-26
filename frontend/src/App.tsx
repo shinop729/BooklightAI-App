@@ -26,11 +26,13 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
   
   if (!isAuthenticated || !user) {
+    console.log('認証されていないため、ログインページにリダイレクト');
     // 現在のURLをローカルストレージに保存
     localStorage.setItem('redirect_after_login', window.location.pathname);
     return <Navigate to="/login" replace />;
   }
   
+  console.log('認証済み、保護されたルートにアクセス許可');
   return <>{children}</>;
 };
 
@@ -46,11 +48,17 @@ const queryClient = new QueryClient({
 });
 
 function AppRoutes() {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
+  
+  console.log('AppRoutes レンダリング - 認証状態:', isAuthenticated ? '認証済み' : '未認証');
   
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/login" element={
+        isAuthenticated ? 
+          <Navigate to="/" replace /> : 
+          <Login />
+      } />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/auth/success-minimal" element={<AuthCallback />} />
       

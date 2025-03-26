@@ -52,6 +52,10 @@ def verify_token(token: str) -> Dict:
         HTTPException: トークンが無効な場合
     """
     try:
+        # 開発環境用トークンバイパス
+        if os.getenv("DEBUG") and token == "dev-token-123":
+            return {"sub": "dev-user", "email": "dev@example.com"}
+            
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:

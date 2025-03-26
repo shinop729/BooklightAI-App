@@ -173,7 +173,29 @@ const Chat = () => {
                           : 'bg-gray-800 text-white'
                       }`}
                     >
-                      <div className="whitespace-pre-wrap">{message.content}</div>
+                      {/* メッセージ内容 - 空の場合はプレースホルダーを表示 */}
+                      <div className="whitespace-pre-wrap">
+                        {message.content ? (
+                          message.content
+                        ) : (
+                          message.isStreaming ? (
+                            <span className="text-gray-400 italic">メッセージを受信中...</span>
+                          ) : (
+                            <span className="text-gray-400 italic">メッセージを受信できませんでした</span>
+                          )
+                        )}
+                      </div>
+                      
+                      {/* デバッグ情報 - 開発環境でのみ表示 */}
+                      {import.meta.env.DEV && (
+                        <div className="mt-1 p-1 bg-gray-900 rounded text-xs text-gray-500">
+                          <div>ID: {message.id}</div>
+                          <div>Content Length: {message.content?.length || 0}</div>
+                          <div>Sources: {message.sources?.length || 0}</div>
+                          <div>Streaming: {message.isStreaming ? 'Yes' : 'No'}</div>
+                        </div>
+                      )}
+                      
                       <div className="flex justify-between items-center mt-2">
                         <div
                           className={`text-xs ${
