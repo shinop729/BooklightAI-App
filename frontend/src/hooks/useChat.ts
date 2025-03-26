@@ -155,9 +155,9 @@ export const useChat = (options: UseChatOptions = {}) => {
         }
         
         // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
-        // baseURLが既に/apiを含んでいるかチェック
         const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
-        const apiPath = baseURL.includes('/api') ? '/chat' : '/api/chat';
+        // 開発環境では /api プレフィックスを追加
+        const apiPath = baseURL.includes('localhost') ? '/api/chat' : '/chat';
         const fullUrl = `${baseURL}${apiPath}`;
         console.log('リクエスト先URL:', fullUrl);
         
@@ -165,7 +165,9 @@ export const useChat = (options: UseChatOptions = {}) => {
           method: 'POST',
           headers,
           body: JSON.stringify(chatRequest),
-          signal: controller.signal
+          signal: controller.signal,
+          credentials: 'include',  // クッキーを含める
+          mode: 'cors'  // CORSモードを明示的に指定
         });
         
         // エラーレスポンスの処理
@@ -346,7 +348,8 @@ export const useChat = (options: UseChatOptions = {}) => {
         
         // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
         const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
-        const apiPath = baseURL.includes('/api') ? '/chat' : '/api/chat';
+        // 開発環境では /api プレフィックスを追加
+        const apiPath = baseURL.includes('localhost') ? '/api/chat' : '/chat';
         console.log('非ストリーミングモード: APIパス =', apiPath);
         
         // apiClientを使用してリクエストを送信

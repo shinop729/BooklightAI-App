@@ -145,6 +145,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Sources"],  # X-Sourcesヘッダーを公開
 )
 
 # 認証ミドルウェアの追加
@@ -1834,9 +1835,9 @@ from app.rag import RAGService
 
 @app.post("/api/chat")
 async def chat_with_ai(
-    request: ChatRequest,
-    req: Request,
-    current_user: User = Depends(lambda: get_current_active_user(request=req)),
+    chat_request: ChatRequest,  # requestをchat_requestにリネーム
+    request: Request,  # reqをrequestにリネーム
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """AIとチャットするエンドポイント（RAG実装）"""
@@ -1850,7 +1851,7 @@ async def chat_with_ai(
         logger.debug(f"環境: {settings.ENVIRONMENT}")
         
         # ユーザーメッセージの検証
-        user_messages = [msg for msg in request.messages if msg.role == "user"]
+        user_messages = [msg for msg in chat_request.messages if msg.role == "user"]
         if not user_messages:
             logger.warning("ユーザーメッセージが含まれていないリクエスト")
             raise HTTPException(
@@ -1906,7 +1907,7 @@ async def chat_with_ai(
         
         # 特定の書籍に関する質問かどうかを判断
         book_title = None
-        for msg in request.messages:
+        for msg in chat_request.messages:
             if msg.role == "system" and "という本について質問" in msg.content:
                 # システムメッセージから書籍タイトルを抽出
                 import re
