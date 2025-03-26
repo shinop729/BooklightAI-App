@@ -80,6 +80,7 @@ const Chat = () => {
   const bookParam = searchParams.get('book');
   const [inputValue, setInputValue] = useState('');
   const [showSources, setShowSources] = useState<Record<string, boolean>>({});
+  const [testResult, setTestResult] = useState<string | null>(null);
   
   const { 
     messages, 
@@ -106,6 +107,69 @@ const Chat = () => {
       } catch (error) {
         console.error('メッセージ送信中にエラーが発生しました:', error);
       }
+    }
+  };
+
+  // APIリクエストテスト
+  const testApiRequest = async () => {
+    // 入力フィールドから値を取得
+    const testMessage = inputValue.trim() || "テストメッセージ";
+    
+    console.log('テストAPIリクエスト開始:', testMessage);
+    setTestResult('リクエスト送信中...');
+    
+    try {
+      // 直接fetchを使用してAPIリクエスト
+      const response = await fetch('http://localhost:8000/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer dev-token-123'
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: testMessage }],
+          stream: false,
+          use_sources: true
+        })
+      });
+      
+      console.log('APIレスポンス受信:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries([...response.headers])
+      });
+      
+      if (response.ok) {
+        // Content-Typeヘッダーをチェック
+        const contentType = response.headers.get('content-type');
+        console.log('レスポンスのContent-Type:', contentType);
+        
+        if (contentType && contentType.includes('application/json')) {
+          // JSONレスポンスの場合
+          const data = await response.json();
+          console.log('JSONレスポンスデータ:', data);
+          setTestResult(`成功: ${JSON.stringify(data).substring(0, 50)}...`);
+        } else {
+          // プレーンテキストの場合
+          const text = await response.text();
+          console.log('テキストレスポンス:', text);
+          setTestResult(`成功: ${text}`);
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('APIエラー:', response.status, errorText);
+        setTestResult(`エラー: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      console.error('例外発生:', error);
+      if (error instanceof Error) {
+        console.error('エラー詳細:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        });
+      }
+      setTestResult(`例外: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -292,9 +356,23 @@ const Chat = () => {
               エラーが発生しました。もう一度お試しください。
             </div>
           )}
-          <div className="mt-2 text-gray-400 text-xs">
-            Shift+Enterで改行、Enterで送信
+          <div className="flex justify-between items-center">
+            <div className="text-gray-400 text-xs">
+              Shift+Enterで改行、Enterで送信
+            </div>
+            <button
+              onClick={testApiRequest}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm"
+              type="button"
+            >
+              APIテスト
+            </button>
           </div>
+          {testResult && (
+            <div className={`mt-2 text-sm ${testResult.startsWith('成功') ? 'text-green-500' : 'text-yellow-500'}`}>
+              {testResult}
+            </div>
+          )}
         </div>
       </div>
     </div>

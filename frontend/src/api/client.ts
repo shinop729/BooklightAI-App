@@ -14,6 +14,13 @@ const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 // Heroku環境では自動的に /api プレフィックスが追加されるため、開発環境でのみ追加
 const apiPrefix = baseURL.includes('localhost') ? '/api' : '';
 
+// デバッグ情報の表示
+console.log('APIクライアント初期化', {
+  baseURL,
+  apiPrefix,
+  isDev: import.meta.env.DEV
+});
+
 const apiClient = axios.create({
   baseURL,
   headers: {
@@ -29,6 +36,13 @@ apiClient.interceptors.request.use(
     if (!config.url?.startsWith('/api') && !config.url?.startsWith('http')) {
       config.url = `${apiPrefix}${config.url}`;
     }
+    
+    // リクエスト情報をログに出力
+    console.log(`APIリクエスト: ${config.method?.toUpperCase()} ${config.url}`, {
+      headers: config.headers,
+      data: config.data
+    });
+    
     return config;
   }
 );
@@ -64,13 +78,28 @@ apiClient.interceptors.request.use(
  * レスポンスインターセプター（トークンリフレッシュ）
  */
 apiClient.interceptors.response.use(
-  (response: AxiosResponse) => response,
+  (response: AxiosResponse) => {
+    // レスポンス情報をログに出力
+    console.log(`APIレスポンス: ${response.status} ${response.statusText}`, {
+      data: response.data,
+      headers: response.headers
+    });
+    return response;
+  },
   async (error: AxiosError) => {
     // 元のリクエスト情報を取得
     const originalRequest = error.config as RequestWithRetry;
     if (!originalRequest) {
       return Promise.reject(error);
     }
+    
+    // エラー情報をログに出力
+    console.error('APIエラー:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      url: originalRequest.url,
+      method: originalRequest.method
+    });
     
     // トークンリフレッシュエンドポイントへのリクエストの場合は再試行しない
     if (originalRequest.url?.includes('/auth/token')) {
