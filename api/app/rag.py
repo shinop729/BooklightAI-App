@@ -122,95 +122,91 @@ class RAGService:
             # ドキュメントが存在する場合のみベクトルストアを作成
             if documents:
                 try:
-                    # ベクトルストアディレクトリの存在確認と作成
-                    vector_dir = f"./api/user_data/vector_db/{self.user_id}"
-                    import os
-                    os.makedirs(vector_dir, exist_ok=True)
+                    # 最初からFAISSベクトルストアを使用する（Chromaの問題を回避）
+                    logger.info("FAISSベクトルストアを使用します")
+                    from langchain.vectorstores import FAISS
                     
-                    # ディレクトリの権限を確認
-                    if not os.access(vector_dir, os.W_OK):
-                        logger.warning(f"ディレクトリ {vector_dir} に書き込み権限がありません")
-                        # 権限を設定
-                        try:
-                            os.chmod(vector_dir, 0o755)
-                            logger.info(f"ディレクトリ {vector_dir} の権限を設定しました")
-                        except Exception as chmod_error:
-                            logger.error(f"ディレクトリ権限設定エラー: {chmod_error}")
-                            # 一時ディレクトリを使用
-                            import tempfile
-                            vector_dir = tempfile.mkdtemp()
-                            logger.info(f"一時ディレクトリを使用します: {vector_dir}")
-                    
-                    # ベクトルストアを作成
-                    logger.info(f"ベクトルストアを作成中: {len(documents)}件のドキュメント")
-                    
-                    # ディレクトリの内容を確認
+                    # FAISS利用可能かチェック
                     try:
-                        dir_contents = os.listdir(vector_dir)
-                        logger.info(f"ディレクトリ {vector_dir} の内容: {dir_contents}")
-                    except Exception as ls_error:
-                        logger.error(f"ディレクトリ内容確認エラー: {ls_error}")
+                        import faiss
+                        logger.info(f"FAISS利用可能: {faiss.__version__}")
+                    except ImportError:
+                        logger.warning("FAISSがインストールされていません。インストールを試みます。")
+                        import subprocess
+                        subprocess.check_call(["pip", "install", "faiss-cpu", "--no-cache-dir"])
+                        import faiss
+                        logger.info(f"FAISSのインストールが完了しました: {faiss.__version__}")
                     
-                    self.vector_store = Chroma.from_documents(
+                    self.vector_store = FAISS.from_documents(
                         documents=documents,
-                        embedding=self.embeddings,
-                        collection_name=f"user_{self.user_id}_highlights",
-                        persist_directory=vector_dir
+                        embedding=self.embeddings
                     )
+                    logger.info(f"FAISSベクトルストアを作成しました（{len(documents)}件のハイライト）")
                     
-                    logger.info(f"ユーザーID {self.user_id} のベクトルストアを初期化しました（{len(documents)}件のハイライト）")
+                    # ベクトルストアの保存（オプション）
+                    try:
+                        vector_dir = f"./api/user_data/vector_db/{self.user_id}"
+                        import os
+                        os.makedirs(vector_dir, exist_ok=True)
+                        
+                        # 保存パスを作成
+                        save_path = os.path.join(vector_dir, "faiss_index")
+                        self.vector_store.save_local(save_path)
+                        logger.info(f"FAISSベクトルストアを保存しました: {save_path}")
+                    except Exception as save_error:
+                        logger.warning(f"FAISSベクトルストアの保存に失敗しました: {save_error}")
+                        # 保存に失敗してもインメモリのベクトルストアは使用可能なので続行
+                
                 except Exception as vs_error:
-                    logger.error(f"Chromaベクトルストア作成エラー: {vs_error}")
+                    logger.error(f"FAISSベクトルストア作成エラー: {vs_error}")
                     import traceback
                     logger.error(f"詳細エラー: {traceback.format_exc()}")
                     
-                    # Chromaのバージョンを確認
+                    # 最後の手段として簡易的なインメモリベクトルストアを作成
                     try:
-                        import chromadb
-                        logger.info(f"ChromaDB バージョン: {chromadb.__version__}")
-                    except Exception as version_error:
-                        logger.error(f"ChromaDBバージョン確認エラー: {version_error}")
-                    
-                    # エラー時はインメモリベクトルストアを試行
-                    try:
-                        logger.info("インメモリベクトルストアを試行します")
-                        import tempfile
-                        with tempfile.TemporaryDirectory() as tmp_dir:
-                            self.vector_store = Chroma.from_documents(
-                                documents=documents,
-                                embedding=self.embeddings,
-                                collection_name=f"user_{self.user_id}_highlights_temp",
-                                persist_directory=tmp_dir
-                            )
-                        logger.info(f"一時ディレクトリにベクトルストアを作成しました")
-                    except Exception as tmp_error:
-                        logger.error(f"一時ベクトルストア作成エラー: {tmp_error}")
-                        logger.error(f"詳細エラー: {traceback.format_exc()}")
+                        logger.info("簡易的なインメモリベクトルストアを作成します")
                         
-                        # 最後の手段としてインメモリのみのベクトルストアを試行
-                        try:
-                            logger.info("インメモリのみのベクトルストアを試行します")
-                            from langchain.vectorstores import FAISS
+                        # 簡易的なベクトルストアクラスを定義
+                        class SimpleVectorStore:
+                            def __init__(self, documents):
+                                self.documents = documents
                             
-                            # FAISS利用可能かチェック
-                            try:
-                                import faiss
-                                logger.info(f"FAISS利用可能: {faiss.__version__}")
-                            except ImportError:
-                                logger.warning("FAISSがインストールされていません。インストールを試みます。")
-                                import subprocess
-                                subprocess.check_call(["pip", "install", "faiss-cpu", "--no-cache-dir"])
-                                logger.info("FAISSのインストールが完了しました")
+                            def similarity_search_with_score(self, query, k=5):
+                                # 単純なキーワードマッチング
+                                results = []
+                                for doc in self.documents:
+                                    if any(keyword.lower() in doc.page_content.lower() for keyword in query.split()):
+                                        results.append((doc, 0.5))  # ダミースコア
+                                
+                                # 結果がない場合はランダムに選択
+                                if not results and self.documents:
+                                    import random
+                                    sample_size = min(k, len(self.documents))
+                                    results = [(doc, 0.1) for doc in random.sample(self.documents, sample_size)]
+                                
+                                return results[:k]
                             
-                            self.vector_store = FAISS.from_documents(
-                                documents=documents,
-                                embedding=self.embeddings
-                            )
-                            logger.info("FAISSベクトルストアを作成しました")
-                        except Exception as faiss_error:
-                            logger.error(f"FAISSベクトルストア作成エラー: {faiss_error}")
-                            logger.error(f"詳細エラー: {traceback.format_exc()}")
-                            self.vector_store = None
+                            def as_retriever(self, search_type=None, search_kwargs=None):
+                                return SimpleRetriever(self)
+                        
+                        class SimpleRetriever:
+                            def __init__(self, vector_store):
+                                self.vector_store = vector_store
+                            
+                            def get_relevant_documents(self, query):
+                                results = self.vector_store.similarity_search_with_score(query, k=5)
+                                return [doc for doc, _ in results]
+                            
+                            def _get_relevant_documents(self, query):
+                                return self.get_relevant_documents(query)
+                        
+                        self.vector_store = SimpleVectorStore(documents)
+                        logger.info("簡易的なインメモリベクトルストアを作成しました")
+                    
+                    except Exception as simple_error:
+                        logger.error(f"簡易的なベクトルストア作成エラー: {simple_error}")
+                        logger.error(f"詳細エラー: {traceback.format_exc()}")
+                        self.vector_store = None
             else:
                 logger.warning("有効なドキュメントがないため、ベクトルストアを作成しません")
                 self.vector_store = None
