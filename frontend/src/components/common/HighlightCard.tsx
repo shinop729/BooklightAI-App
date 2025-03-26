@@ -5,9 +5,10 @@ interface HighlightCardProps {
   title: string;
   author: string;
   index?: number;
+  showBookLink?: boolean; // 書籍リンクを表示するかどうか
 }
 
-const HighlightCard = ({ content, title, author, index = 0 }: HighlightCardProps) => {
+const HighlightCard = ({ content, title, author, index = 0, showBookLink = true }: HighlightCardProps) => {
   // URLエンコードされたタイトル
   const encodedTitle = encodeURIComponent(title);
   
@@ -17,12 +18,14 @@ const HighlightCard = ({ content, title, author, index = 0 }: HighlightCardProps
         <p className="text-white text-base leading-relaxed mb-3">{content}</p>
       </div>
       
-      <Link 
-        to={`/books/${encodedTitle}`}
-        className="mt-2 inline-block w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded text-center transition-colors"
-      >
-        📚 {title} / {author}
-      </Link>
+      {showBookLink && (
+        <Link 
+          to={`/books/${encodedTitle}`}
+          className="mt-2 inline-block w-full py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded text-center transition-colors"
+        >
+          📚 {title} / {author}
+        </Link>
+      )}
     </div>
   );
 };

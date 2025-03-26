@@ -252,6 +252,7 @@ const BookDetail = () => {
                   title={book.title}
                   author={book.author}
                   index={index}
+                  showBookLink={false} // 書籍詳細ページではリンクを非表示
                 />
                 {highlight.location && (
                   <div className="absolute top-2 right-2 bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded-full">
