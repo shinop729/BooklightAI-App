@@ -98,8 +98,14 @@ const Chat = () => {
   const handleSendMessage = async () => {
     if (inputValue.trim() && !isLoading) {
       console.log('メッセージ送信:', inputValue);
-      await sendMessage(inputValue);
-      setInputValue('');
+      try {
+        console.log('sendMessage関数を呼び出し中...');
+        await sendMessage(inputValue);
+        console.log('sendMessage関数の呼び出しが完了しました');
+        setInputValue('');
+      } catch (error) {
+        console.error('メッセージ送信中にエラーが発生しました:', error);
+      }
     }
   };
 

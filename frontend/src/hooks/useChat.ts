@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import axios from 'axios';
 import apiClient from '../api/client';
 import { ChatMessage, ChatRequest, ChatRole, ChatSource } from '../types';
 import { useChatStore } from '../store/chatStore';
@@ -62,10 +63,13 @@ export const useChat = (options: UseChatOptions = {}) => {
   }, [bookTitle]);
 
   const sendMessage = useCallback(async (content: string) => {
+    console.log('sendMessage関数が呼び出されました', { content });
     if (!currentSessionId) {
+      console.error('チャットセッションが初期化されていません');
       setError('チャットセッションが初期化されていません');
       return;
     }
+    
     setIsLoading(true);
     setError(null);
     
@@ -182,15 +186,17 @@ export const useChat = (options: UseChatOptions = {}) => {
 
         console.log('ヘッダー情報:', headers);
         
-        // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
-        const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
-        // 開発環境では /api プレフィックスを追加
-        const apiPath = '/api/chat';
-        const fullUrl = `${baseURL}${apiPath}`;
+        // fetchを使用してリクエストを送信（axiosはストリーミングに対応していないため）
+        // ガイドラインに従ってポート番号を固定
+        const baseURL = 'http://localhost:8000';
+        const apiPrefix = '/api';
+        const fullUrl = `${baseURL}${apiPrefix}/chat`; // 正しいエンドポイント
+        
         console.log('リクエスト先URL:', fullUrl);
         console.log('リクエスト本文:', JSON.stringify(chatRequest, null, 2));
         console.log('ヘッダー情報:', JSON.stringify(headers, null, 2));
         
+        // fetchを使用してストリーミングリクエストを送信
         const response = await fetch(fullUrl, {
           method: 'POST',
           headers,
@@ -403,16 +409,15 @@ export const useChat = (options: UseChatOptions = {}) => {
           }
         }
         
-        // APIパスの構築（apiClientの設定に基づいて適切なパスを構築）
-        const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
-        // 常に /api プレフィックスを使用
-        const apiPath = '/api/chat';
-        console.log('非ストリーミングモード: APIパス =', apiPath);
+        console.log('非ストリーミングモード: リクエスト =', JSON.stringify(nonStreamingRequest, null, 2));
         
         // apiClientを使用してリクエストを送信
-        const response = await apiClient.post(apiPath, nonStreamingRequest);
+        // apiClientのbaseURLを確認
+        console.log('apiClient baseURL:', apiClient.defaults.baseURL);
         
-        console.log('非ストリーミングレスポンス:', response.status, response.statusText);
+        // 直接エンドポイントを指定
+        const response = await apiClient.post('http://localhost:8000/api/chat', nonStreamingRequest);
+        console.log('非ストリーミングモード: レスポンス =', response.status, response.statusText);
         
         if (response.data.success) {
           const aiResponse = response.data.data.message.content;
@@ -465,7 +470,7 @@ export const useChat = (options: UseChatOptions = {}) => {
       setIsLoading(false);
       setAbortController(null);
     }
-  }, [currentSessionId, messages, addMessage, updateMessage, createSystemMessage]);
+  }, [currentSessionId, messages, addMessage, updateMessage, createSystemMessage, sessions]);
   
   // チャットのキャンセル
   const cancelChat = useCallback(() => {
