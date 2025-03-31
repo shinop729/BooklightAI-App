@@ -57,6 +57,9 @@ const Sidebar = () => {
         <Link to="/chat" className="block py-2 px-4 rounded hover:bg-gray-800">
           💬 チャットモード
         </Link>
+        <Link to="/cross-point" className="block py-2 px-4 rounded hover:bg-gray-800">
+          🔄 Cross Point
+        </Link>
         <Link to="/books" className="block py-2 px-4 rounded hover:bg-gray-800">
           📚 書籍一覧
         </Link>

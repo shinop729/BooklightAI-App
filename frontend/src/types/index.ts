@@ -17,6 +17,9 @@ export * from './chat';
 // ユーザー関連
 export * from './user';
 
+// Cross Point関連
+export * from './crossPoint';
+
 /**
  * アプリケーション状態
  */

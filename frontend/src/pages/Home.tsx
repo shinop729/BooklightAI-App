@@ -1,13 +1,16 @@
 import { useAuth } from '../context/AuthContext';
 import { useRandomHighlight } from '../hooks/useRandomHighlight';
 import { useUserStats } from '../hooks/useUserStats';
+import { useCrossPoint } from '../hooks/useCrossPoint';
 import HighlightCard from '../components/common/HighlightCard';
+import CrossPointCard from '../components/feature/CrossPointCard';
 import { formatDate } from '../utils/textUtils';
 
 const Home = () => {
   const { user } = useAuth();
   const { randomHighlight, isLoading: highlightLoading, refreshHighlight } = useRandomHighlight();
   const { stats, isLoading: statsLoading } = useUserStats();
+  const { crossPoint, loading: crossPointLoading, toggleLike } = useCrossPoint();
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -39,6 +42,33 @@ const Home = () => {
           </div>
         ) : (
           <p className="text-gray-400 text-center">ハイライトが見つかりませんでした。</p>
+        )}
+      </div>
+
+      {/* Cross Point */}
+      <div className="bg-gray-800 rounded-lg p-6 shadow-lg mb-8">
+        <div className="mb-4 text-center">
+          <h2 className="text-xl font-semibold text-white">今日のCross Point</h2>
+          <p className="text-gray-400 text-sm">異なる書籍間の意外な繋がりを発見</p>
+        </div>
+        
+        {crossPointLoading ? (
+          <div className="flex justify-center items-center h-40">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        ) : crossPoint ? (
+          <CrossPointCard
+            crossPoint={crossPoint}
+            onLike={toggleLike}
+            loading={crossPointLoading}
+          />
+        ) : (
+          <div className="text-center py-8">
+            <p className="text-gray-400 mb-2">Cross Pointを生成するには、少なくとも2冊の書籍からのハイライトが必要です。</p>
+            <a href="/upload" className="text-blue-400 hover:text-blue-300">
+              ハイライトをアップロードする →
+            </a>
+          </div>
         )}
       </div>
 

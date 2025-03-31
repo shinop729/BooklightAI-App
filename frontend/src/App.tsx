@@ -13,6 +13,7 @@ import AuthCallback from './pages/AuthCallback';
 import Home from './pages/Home';
 import Search from './pages/Search';
 import Chat from './pages/Chat';
+import CrossPoint from './pages/CrossPoint';
 import BookList from './pages/BookList';
 import BookDetail from './pages/BookDetail';
 import Upload from './pages/Upload';
@@ -82,6 +83,14 @@ function AppRoutes() {
         <ProtectedRoute>
           <Layout>
             <Chat />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/cross-point" element={
+        <ProtectedRoute>
+          <Layout>
+            <CrossPoint />
           </Layout>
         </ProtectedRoute>
       } />
