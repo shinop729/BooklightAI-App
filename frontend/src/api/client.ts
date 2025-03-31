@@ -157,4 +157,35 @@ apiClient.interceptors.response.use(
   }
 );
 
+// Cross Point関連のAPI
+export const getCrossPoint = async () => {
+  try {
+    const response = await apiClient.get('/cross-point');
+    return response.data;
+  } catch (error) {
+    console.error('Cross Point取得エラー:', error);
+    throw error;
+  }
+};
+
+export const likeCrossPoint = async (crossPointId: number) => {
+  try {
+    const response = await apiClient.post(`/cross-point/${crossPointId}/like`);
+    return response.data;
+  } catch (error) {
+    console.error('Cross Pointお気に入り登録エラー:', error);
+    throw error;
+  }
+};
+
+export const generateEmbeddings = async () => {
+  try {
+    const response = await apiClient.post('/cross-point/embeddings/generate');
+    return response.data;
+  } catch (error) {
+    console.error('埋め込みベクトル生成エラー:', error);
+    throw error;
+  }
+};
+
 export default apiClient;

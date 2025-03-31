@@ -2231,10 +2231,125 @@ async def chat_with_ai(
             }
         )
 
+# Cross Point関連のインポート
+from app.cross_point import CrossPointService
+
 # ファイルアップロード関連エンドポイント
 from fastapi import File, UploadFile
 import csv
 import io
+
+# Cross Point関連のエンドポイント
+@app.get("/api/cross-point")
+async def get_cross_point(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """日次のCross Pointを取得するエンドポイント"""
+    try:
+        # Cross Pointサービスの初期化
+        service = CrossPointService(db, current_user.id)
+        
+        # Cross Pointの取得
+        result = await service.get_daily_cross_point()
+        
+        if not result:
+            return {
+                "success": False,
+                "message": "Cross Pointを生成するには少なくとも2冊の書籍が必要です。"
+            }
+        
+        return {
+            "success": True,
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Cross Point取得エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "error": "Cross Pointの取得中にエラーが発生しました",
+                "message": str(e)
+            }
+        )
+
+@app.post("/api/cross-point/{cross_point_id}/like")
+async def like_cross_point(
+    cross_point_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Cross Pointをお気に入り登録するエンドポイント"""
+    try:
+        # Cross Pointの取得
+        cross_point = db.query(models.CrossPoint).filter(
+            models.CrossPoint.id == cross_point_id,
+            models.CrossPoint.user_id == current_user.id
+        ).first()
+        
+        if not cross_point:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定されたCross Pointが見つかりません"
+            )
+        
+        # お気に入り状態を切り替え
+        cross_point.liked = not cross_point.liked
+        db.commit()
+        
+        return {
+            "success": True,
+            "data": {
+                "id": cross_point.id,
+                "liked": cross_point.liked
+            }
+        }
+    except HTTPException as e:
+        # HTTPExceptionはそのまま再送
+        raise e
+    except Exception as e:
+        logger.error(f"Cross Pointお気に入り登録エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Cross Pointのお気に入り登録中にエラーが発生しました"
+        )
+
+@app.post("/api/cross-point/embeddings/generate")
+async def generate_embeddings(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ハイライトの埋め込みベクトルを生成するエンドポイント（管理用）"""
+    try:
+        # Cross Pointサービスの初期化
+        service = CrossPointService(db, current_user.id)
+        
+        # 埋め込みベクトルの生成
+        result = await service.generate_embeddings_for_all_highlights()
+        
+        return {
+            "success": result["success"],
+            "message": result["message"],
+            "data": {
+                "processed": result["processed"],
+                "total": result["total"]
+            }
+        }
+    except Exception as e:
+        logger.error(f"埋め込みベクトル生成エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "error": "埋め込みベクトルの生成中にエラーが発生しました",
+                "message": str(e)
+            }
+        )
 
 @app.post("/api/upload")
 async def upload_highlights(

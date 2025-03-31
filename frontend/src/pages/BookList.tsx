@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useBooksPagination } from '../hooks/useBooksPagination';
 import { Book } from '../types';
 import BookCard from '../components/feature/BookCard';
@@ -28,18 +28,42 @@ const BookList = () => {
   
   // 検索入力のデバウンス処理
   useEffect(() => {
-    const timer = setTimeout(() => {
-      search(searchInput);
-      setDebouncedSearch(searchInput);
-    }, 300);
-    
-    return () => clearTimeout(timer);
-  }, [searchInput, search]);
+    // 検索語句が変更された場合のみ検索を実行
+    if (searchInput !== debouncedSearch) {
+      const timer = setTimeout(() => {
+        search(searchInput);
+        setDebouncedSearch(searchInput);
+      }, 300);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [searchInput, debouncedSearch]);
+  
+  // 初回マウント判定用
+  const [isInitialMount, setIsInitialMount] = useState(true);
   
   // ページサイズ変更時の処理
   useEffect(() => {
+    // コンポーネントの初回マウント時は実行しない
+    if (isInitialMount) {
+      setIsInitialMount(false);
+      return;
+    }
+    
+    // ページサイズが変更された場合のみ実行
+    console.log(`ページサイズオプション変更: ${pageSizeOption}`);
     changePageSize(pageSizeOption);
   }, [pageSizeOption, changePageSize]);
+  
+  // デバッグ用の状態監視
+  useEffect(() => {
+    console.log('ページネーション状態:', {
+      currentPage,
+      totalPages,
+      itemsCount: books.length,
+      isLoading
+    });
+  }, [currentPage, totalPages, books, isLoading]);
 
   // ソートアイコン
   const SortIcon = ({ field }: { field: 'title' | 'author' | 'highlightCount' }) => {
@@ -100,7 +124,10 @@ const BookList = () => {
         {pageNumbers.map(number => (
           <button
             key={number}
-            onClick={() => goToPage(number)}
+            onClick={() => {
+              console.log(`ページ${number}ボタンがクリックされました`);
+              goToPage(number);
+            }}
             className={`px-3 py-1 rounded ${
               currentPage === number
                 ? 'bg-blue-600 text-white'
