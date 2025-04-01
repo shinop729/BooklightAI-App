@@ -188,4 +188,47 @@ export const generateEmbeddings = async () => {
   }
 };
 
+// Remix関連のAPI
+export const getRandomTheme = async () => {
+  try {
+    const response = await apiClient.get('/remix/random-theme');
+    return response.data;
+  } catch (error) {
+    console.error('ランダムテーマ取得エラー:', error);
+    throw error;
+  }
+};
+
+export const generateRemix = async (highlightCount: number = 5) => {
+  try {
+    const response = await apiClient.post('/remix', { highlight_count: highlightCount });
+    return response.data;
+  } catch (error) {
+    console.error('Remix生成エラー:', error);
+    throw error;
+  }
+};
+
+export const getRemixById = async (remixId: number) => {
+  try {
+    const response = await apiClient.get(`/remix/${remixId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Remix取得エラー:', error);
+    throw error;
+  }
+};
+
+export const getUserRemixes = async (page: number = 1, pageSize: number = 10) => {
+  try {
+    const response = await apiClient.get('/remixes', {
+      params: { page, page_size: pageSize }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Remix一覧取得エラー:', error);
+    throw error;
+  }
+};
+
 export default apiClient;
