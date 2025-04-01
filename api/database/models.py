@@ -122,3 +122,30 @@ class ConnectionHistory(Base):
     user = relationship("User", backref="connection_history")
     highlight1 = relationship("Highlight", foreign_keys=[highlight1_id])
     highlight2 = relationship("Highlight", foreign_keys=[highlight2_id])
+
+# Remix関連のモデル
+class Remix(Base):
+    """Remixモデル"""
+    __tablename__ = "remix"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    title = Column(String, nullable=False)
+    theme = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = relationship("User", backref="remixes")
+    highlights = relationship("RemixHighlight", back_populates="remix", cascade="all, delete-orphan")
+
+class RemixHighlight(Base):
+    """Remix-ハイライト関連モデル"""
+    __tablename__ = "remix_highlights"
+
+    remix_id = Column(Integer, ForeignKey('remix.id'), primary_key=True)
+    highlight_id = Column(Integer, ForeignKey('highlights.id'), primary_key=True)
+    position = Column(Integer, nullable=False)  # ハイライトの順序
+    
+    remix = relationship("Remix", back_populates="highlights")
+    highlight = relationship("Highlight")

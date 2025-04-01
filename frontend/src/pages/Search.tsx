@@ -393,21 +393,21 @@ const Search = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {results.length > 0 ? (
-              results.map((result: SearchResult, index: number) => (
-                <div key={index} className="relative">
-                  <HighlightCard
-                    content={result.doc.page_content}
-                    title={result.doc.metadata.original_title}
-                    author={result.doc.metadata.original_author}
-                    index={index}
-                  />
-                  {/* スコア表示（オプション） */}
-                  <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
-                    スコア: {result.score.toFixed(2)}
-                  </div>
-                </div>
-              ))
+{results.length > 0 ? (
+  results.map((result: any, index: number) => (
+    <div key={index} className="relative">
+      <HighlightCard
+        content={result.content}
+        title={result.book_title}
+        author={result.book_author}
+        index={index}
+      />
+      {/* スコア表示（オプション） */}
+      <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
+        スコア: {result.score.toFixed(2)}
+      </div>
+    </div>
+  ))
             ) : keywords.length > 0 ? (
               <div className="text-center text-gray-400 py-8">
                 <p>検索結果が見つかりませんでした。</p>

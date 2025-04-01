@@ -14,6 +14,8 @@ import Home from './pages/Home';
 import Search from './pages/Search';
 import Chat from './pages/Chat';
 import CrossPoint from './pages/CrossPoint';
+import Remix from './pages/Remix';
+import RemixDetail from './pages/RemixDetail';
 import BookList from './pages/BookList';
 import BookDetail from './pages/BookDetail';
 import Upload from './pages/Upload';
@@ -91,6 +93,22 @@ function AppRoutes() {
         <ProtectedRoute>
           <Layout>
             <CrossPoint />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/remix" element={
+        <ProtectedRoute>
+          <Layout>
+            <Remix />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/remix/:id" element={
+        <ProtectedRoute>
+          <Layout>
+            <RemixDetail />
           </Layout>
         </ProtectedRoute>
       } />

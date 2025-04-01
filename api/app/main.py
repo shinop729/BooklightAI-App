@@ -687,3 +687,7 @@ app.include_router(highlight_router)
 # ユーザー関連のエンドポイントをインクルード
 from app.user_endpoints import router as user_router
 app.include_router(user_router)
+
+# 検索関連のエンドポイントをインクルード
+from app.search_endpoints import router as search_router
+app.include_router(search_router)
