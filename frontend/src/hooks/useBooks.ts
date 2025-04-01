@@ -29,7 +29,7 @@ export const useBookHighlights = (bookId: string) => {
     queryKey: ['bookHighlights', bookId],
     queryFn: async (): Promise<Highlight[]> => {
       const { data } = await apiClient.get<BookHighlightsResponse>(`/api/books/${bookId}/highlights`);
-      return data.data;
+      return data.data.items;
     },
     enabled: !!bookId
   });

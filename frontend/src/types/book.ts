@@ -55,7 +55,20 @@ export type BookResponse = ApiResponse<Book>;
 /**
  * 書籍ハイライト一覧レスポンス
  */
-export type BookHighlightsResponse = ApiResponse<Highlight[]>;
+export interface BookHighlightsData {
+  items: Highlight[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  book?: {
+    id: string;
+    title: string;
+    author: string;
+  };
+}
+
+export type BookHighlightsResponse = ApiResponse<BookHighlightsData>;
 
 /**
  * 書籍カバー画像レスポンス
