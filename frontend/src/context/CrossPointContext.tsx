@@ -1,7 +1,8 @@
-import { createContext, useContext, ReactNode, useRef, useEffect } from 'react';
+import { createContext, useContext, ReactNode, useRef, useEffect, useState } from 'react'; // useState を追加
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getCrossPoint, likeCrossPoint, generateEmbeddings } from '../api/client';
-import { CrossPoint } from '../types';
+// getCrossPointForce をインポート
+import { getCrossPoint, getCrossPointForce, likeCrossPoint, generateEmbeddings } from '../api/client';
+import { CrossPoint, CrossPointResponse } from '../types'; // CrossPointResponse をインポート
 import { useToast } from './ToastContext';
 
 // クエリキー（固定値として使用）
@@ -12,7 +13,8 @@ interface CrossPointContextType {
   crossPoint: CrossPoint | null;
   loading: boolean;
   error: string | null;
-  fetchCrossPoint: () => Promise<void>;
+  fetchCrossPoint: () => Promise<void>; // 既存の関数
+  forceFetchCrossPoint: () => Promise<void>; // 新しい関数を追加
   toggleLike: (id: number) => Promise<void>;
   generateEmbeddingsForAll: () => Promise<any>;
 }
@@ -25,7 +27,9 @@ export const CrossPointProvider = ({ children }: { children: ReactNode }) => {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const isMounted = useRef(true);
-  
+  // ローディング状態を別途管理（useQueryのisLoadingとは別に）
+  const [isForceFetching, setIsForceFetching] = useState(false);
+
   // コンポーネントのマウント状態を管理
   useEffect(() => {
     isMounted.current = true;
@@ -37,9 +41,9 @@ export const CrossPointProvider = ({ children }: { children: ReactNode }) => {
   // React Queryを使用してCross Pointデータを取得（設定を最適化）
   const {
     data: crossPoint,
-    isLoading: loading,
+    isLoading: initialLoading, // 初回ロード用のisLoading
     error,
-    refetch
+    refetch // fetchCrossPoint (通常) で使用
   } = useQuery<CrossPoint, Error>({
     queryKey: CROSS_POINT_QUERY_KEY,
     queryFn: async () => {
@@ -81,6 +85,36 @@ export const CrossPointProvider = ({ children }: { children: ReactNode }) => {
       await refetch();
     } catch (err) {
       console.error('Cross Point再取得エラー:', err);
+    }
+  };
+
+  // 強制的にデータを再取得する関数 (getCrossPointForce を使用)
+  const forceFetchCrossPoint = async () => {
+    console.log('Cross Pointを強制的に再取得します (API直接呼び出し)');
+    setIsForceFetching(true); // ローディング開始
+    try {
+      // localStorageキャッシュを無視するAPI関数を呼び出す
+      const response: CrossPointResponse = await getCrossPointForce();
+
+      if (!isMounted.current) return; // アンマウントチェック
+
+      if (response.success && response.data) {
+        // React Queryのキャッシュを手動で更新
+        queryClient.setQueryData(CROSS_POINT_QUERY_KEY, response.data);
+        showToast('success', '新しいCross Pointを取得しました');
+      } else {
+        // APIからのエラーメッセージを表示
+        showToast('error', response.message || 'Cross Pointの取得に失敗しました');
+      }
+    } catch (err) {
+      if (!isMounted.current) return; // アンマウントチェック
+      console.error('Cross Point強制再取得エラー:', err);
+      showToast('error', 'Cross Pointの再取得中にエラーが発生しました');
+    } finally {
+      // アンマウントチェック後にローディング状態を解除
+      if (isMounted.current) {
+        setIsForceFetching(false);
+      }
     }
   };
 
@@ -138,9 +172,11 @@ export const CrossPointProvider = ({ children }: { children: ReactNode }) => {
   // コンテキスト値
   const value: CrossPointContextType = {
     crossPoint: crossPoint || null,
-    loading,
+    // ローディング状態は初回ロードと強制フェッチを組み合わせる
+    loading: initialLoading || isForceFetching,
     error: error ? error.message : null,
     fetchCrossPoint,
+    forceFetchCrossPoint,
     toggleLike,
     generateEmbeddingsForAll
   };

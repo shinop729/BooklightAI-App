@@ -24,12 +24,14 @@ router = APIRouter()
 # Cross Point取得エンドポイント
 @router.get("/api/cross-point")
 async def get_cross_point(
+    force: bool = Query(False, description="Trueの場合、既存の今日のCross Pointを無視して強制的に再生成する"), # forceクエリパラメータを追加
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Cross Pointを取得するエンドポイント"""
     service = CrossPointService(db, current_user.id)
-    result = await service.get_daily_cross_point()
+    # force パラメータをサービスメソッドに渡す
+    result = await service.get_daily_cross_point(force_generate=force)
     
     if not result:
         return JSONResponse(

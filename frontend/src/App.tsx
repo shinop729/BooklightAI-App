@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider } from './context/AuthContext';
-import { useAuth } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { CrossPointProvider } from './context/CrossPointContext';
 import Layout from './components/layout/Layout';
 
 // ページコンポーネント
@@ -171,10 +171,12 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <ToastProvider>
-            <Router>
-              <AppRoutes />
-              <OfflineNotification />
-            </Router>
+            <CrossPointProvider>
+              <Router>
+                <AppRoutes />
+                <OfflineNotification />
+              </Router>
+            </CrossPointProvider>
           </ToastProvider>
         </AuthProvider>
       </ThemeProvider>

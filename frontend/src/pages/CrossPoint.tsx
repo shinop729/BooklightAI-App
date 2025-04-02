@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useCrossPoint } from '../hooks/useCrossPoint';
+import React from 'react';
+import { useCrossPoint } from '../context/CrossPointContext';
 import CrossPointCard from '../components/feature/CrossPointCard';
 import { useAuth } from '../context/AuthContext';
 
@@ -8,7 +9,8 @@ import { useAuth } from '../context/AuthContext';
  */
 const CrossPointPage = () => {
   const { user } = useAuth();
-  const { crossPoint, loading, error, fetchCrossPoint, toggleLike, generateEmbeddingsForAll } = useCrossPoint();
+  // forceFetchCrossPoint をフックから取得
+  const { crossPoint, loading, error, fetchCrossPoint, forceFetchCrossPoint, toggleLike, generateEmbeddingsForAll } = useCrossPoint();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<{
     processed: number;
@@ -69,7 +71,7 @@ const CrossPointPage = () => {
             />
             <div className="mt-6 text-center">
               <button
-                onClick={fetchCrossPoint}
+                onClick={forceFetchCrossPoint} // onClickハンドラを forceFetchCrossPoint に変更
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                 disabled={loading}
               >
@@ -127,4 +129,4 @@ const CrossPointPage = () => {
   );
 };
 
-export default CrossPointPage;
+export default React.memo(CrossPointPage);

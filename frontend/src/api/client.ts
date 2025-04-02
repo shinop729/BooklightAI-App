@@ -388,6 +388,37 @@ export const getCrossPoint = _getCrossPointOriginal;
 // 本来は以下のようにデバウンス処理を適用するべきですが、型の問題があるため保留
 // export const getCrossPoint = debounce(_getCrossPointOriginal, 1000) as typeof _getCrossPointOriginal;
 
+/**
+ * Cross Pointを強制的にサーバーから取得する（localStorageキャッシュを無視）
+ */
+export const getCrossPointForce = async () => {
+  try {
+    console.log('Cross Pointを強制的にサーバーから取得 (キャッシュ無視)');
+    // force=true パラメータを追加してリクエスト
+    const response = await apiClient.get('/cross-point', { params: { force: true } });
+
+    // レスポンスをキャッシュ（1時間） - 強制取得でもキャッシュは更新する
+    if (response.data.success) {
+      try {
+        const cacheKey = `${CACHE_PREFIX}cross_point`;
+        cacheUtils.set(cacheKey, response.data, 60 * 60 * 1000);
+        console.log('Cross Pointをキャッシュに保存しました (強制取得後)');
+      } catch (cacheError) {
+        console.warn('Cross Pointキャッシュ保存エラー (強制取得後):', cacheError);
+      }
+    }
+
+    return response.data;
+  } catch (error) {
+    console.error('Cross Point強制取得エラー:', error);
+    if (error instanceof Error) {
+      console.error('エラー詳細:', { name: error.name, message: error.message, stack: error.stack });
+    }
+    throw error;
+  }
+};
+
+
 export const likeCrossPoint = async (crossPointId: number) => {
   try {
     const response = await apiClient.post(`/cross-point/${crossPointId}/like`);
