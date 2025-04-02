@@ -99,7 +99,7 @@ const apiClient = axios.create({
     'Content-Type': 'application/json'
   },
   withCredentials: true,
-  timeout: 30000 // 30秒タイムアウト
+  timeout: 70000 // 70秒タイムアウト (Remix生成のため延長)
 });
 
 // APIリクエスト時にパスにプレフィックスを追加
