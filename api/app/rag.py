@@ -41,7 +41,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_ # or_ をインポート
 import database.models as models
 from app.config import settings
-from app.utils.query_processing import extract_keywords_from_query # 新しい関数をインポート
+# Updated import to use the new function name
+from app.utils.query_processing import extract_and_expand_keywords
 
 # ロギング設定
 logger = logging.getLogger("booklight-api")
@@ -437,20 +438,21 @@ class RAGService:
             # ベクトルストアがない場合でもキーワード検索は試みる
             # return [] # ここで早期リターンしない
 
-        # 1. キーワード抽出 (generate_answerから移動)
+        # 1. キーワード抽出と拡張 (新しい関数を使用)
         try:
-            keywords = await extract_keywords_from_query(query)
-            if not keywords:
-                logger.warning(f"[ID:{search_id}] キーワード抽出に失敗: '{query}'。元のクエリを使用します。")
-                search_keywords = query.split() # 元のクエリをスペースで分割
+            # Use the new function to get expanded keywords
+            expanded_keywords = await extract_and_expand_keywords(query)
+            if not expanded_keywords:
+                logger.warning(f"[ID:{search_id}] キーワード抽出・拡張に失敗: '{query}'。元のクエリを分割して使用します。")
+                search_keywords = query.split() # Fallback to splitting the original query
             else:
-                search_keywords = keywords
-                logger.info(f"[ID:{search_id}] 抽出されたキーワード: {search_keywords}")
+                search_keywords = expanded_keywords # Use the expanded list
+                logger.info(f"[ID:{search_id}] 抽出・拡張されたキーワード: {search_keywords}")
         except Exception as e:
-            logger.error(f"[ID:{search_id}] キーワード抽出中にエラー: {e}")
-            search_keywords = query.split() # エラー時も元のクエリを使用
+            logger.error(f"[ID:{search_id}] キーワード抽出・拡張中にエラー: {e}")
+            search_keywords = query.split() # Fallback on error
 
-        # 2. キーワード検索の実行 (DB直接検索)
+        # 2. キーワード検索の実行 (DB直接検索 - 拡張されたキーワードを使用)
         keyword_matches_highlights = []
         keyword_match_ids = set()
         if search_keywords:
@@ -656,121 +658,6 @@ class RAGService:
             logger.error(f"_search_with_params エラー: {e}")
             return []
 
-    async def _expand_query(self, query: str) -> Dict[str, str]:
-        """クエリを拡張する（類義語や言い換え）"""
-        # リトライ設定
-        max_retries = 3
-        retry_count = 0
-        retry_delay = 1  # 秒
-        
-        # 基本的な同義語辞書（フォールバック用）
-        basic_synonyms = {
-            "贈与": "贈与 プレゼント ギフト 寄付 施し",
-            "教育": "教育 学習 勉強 指導 教授",
-            "戦略": "戦略 戦術 計画 方針 アプローチ",
-            "経済": "経済 財政 金融 市場 ビジネス",
-            "哲学": "哲学 思想 理念 概念 原理",
-            "心理": "心理 精神 心 感情 意識"
-        }
-        
-        # クエリから主要キーワードを抽出（最長の単語を使用）
-        main_keyword = max(query.split(), key=len) if query.split() else ""
-        
-        while retry_count < max_retries:
-            try:
-                # リクエスト開始時間を記録
-                start_time = time.time()
-                request_id = f"req_{int(start_time * 1000)}"
-                
-                logger.info(f"クエリ拡張開始 [ID:{request_id}]: '{query}' (試行: {retry_count+1}/{max_retries})")
-                
-                # 共通のOpenAIクライアントを使用
-                client = self.openai_client
-
-                # クエリ拡張プロンプト
-                prompt = f"""
-                元のクエリ: {query}
-
-                このクエリに関連する以下の情報を提供してください:
-                1. 類義語や関連キーワード（スペース区切り）
-                2. クエリの言い換え（1つの文として）
-
-                以下の形式で回答してください:
-                {{
-                    "synonyms": "類義語1 類義語2 関連キーワード1 関連キーワード2",
-                    "reformulation": "クエリの言い換え"
-                }}
-                """
-
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.7,
-                    max_tokens=150,
-                    timeout=30  # タイムアウト設定を30秒に延長
-                )
-
-                # 処理時間を計算
-                elapsed_time = time.time() - start_time
-                logger.info(f"クエリ拡張成功 [ID:{request_id}]: 処理時間={elapsed_time:.2f}秒")
-
-                result_text = response.choices[0].message.content
-
-                # JSON形式の抽出
-                # JSON部分を抽出
-                json_match = re.search(r'({.*})', result_text, re.DOTALL)
-                if json_match:
-                    try:
-                        result = json.loads(json_match.group(1))
-                        return result
-                    except json.JSONDecodeError:
-                        logger.warning(f"JSONデコードエラー [ID:{request_id}]: {result_text}")
-                        pass
-
-                # 正規表現でキーと値を抽出
-                synonyms_match = re.search(r'"synonyms":\s*"([^"]*)"', result_text)
-                reformulation_match = re.search(r'"reformulation":\s*"([^"]*)"', result_text)
-
-                result = {}
-                if synonyms_match:
-                    result["synonyms"] = synonyms_match.group(1)
-                if reformulation_match:
-                    result["reformulation"] = reformulation_match.group(1)
-
-                return result
-
-            except Exception as e:
-                retry_count += 1
-                error_type = type(e).__name__
-                error_detail = str(e)
-                
-                logger.warning(f"クエリ拡張エラー [試行:{retry_count}/{max_retries}]: {error_type} - {error_detail}")
-                
-                if retry_count < max_retries:
-                    logger.info(f"クエリ拡張リトライ: {retry_delay}秒後に再試行します")
-                    await asyncio.sleep(retry_delay)
-                    # 次回のリトライで待機時間を増やす（指数バックオフ）
-                    retry_delay *= 2
-                else:
-                    logger.error(f"クエリ拡張失敗: 最大リトライ回数に達しました - {error_type}: {error_detail}")
-        
-        # リトライ失敗時のフォールバック処理
-        logger.warning(f"クエリ拡張フォールバック: 基本的な同義語辞書を使用します")
-        
-        # 基本的な同義語辞書からフォールバック値を取得
-        result = {}
-        
-        # 主要キーワードが辞書にあればその同義語を使用
-        for key in basic_synonyms:
-            if key in query:
-                result["synonyms"] = basic_synonyms[key]
-                result["reformulation"] = f"{query}について詳しく教えてください"
-                logger.info(f"フォールバック同義語を適用: '{key}' → '{result['synonyms']}'")
-                return result
-        
-        # 辞書に一致するものがなければ空の結果を返す
-        return {}
-
     async def generate_answer(self, query: str, book_title: Optional[str] = None):
         """
         クエリに対する回答を生成する
@@ -793,23 +680,20 @@ class RAGService:
             if book_title:
                 logger.info(f"指定書籍: '{book_title}'")
 
-            # フェーズ1で実装した関数でキーワードを抽出
-            keywords = await extract_keywords_from_query(query)
-            if not keywords:
-                logger.warning(f"キーワード抽出に失敗: '{query}'。元のクエリを使用します。")
-                search_query = query
-            else:
-                search_query = " ".join(keywords) # キーワードをスペース区切りで結合
-                logger.info(f"抽出されたキーワード: {keywords} -> 検索クエリ: '{search_query}'")
-
-            # 抽出されたキーワードでハイライトを検索 (use_expanded=False を明示的に指定)
+            # キーワード抽出と拡張 (新しい関数を使用)
+            # Note: get_relevant_highlights_async already performs extraction and expansion.
+            # We call it directly with the original query.
+            # The keywords used for DB search inside get_relevant_highlights_async
+            # will be the expanded ones.
+            logger.info(f"関連ハイライト検索開始 (generate_answer内): query='{query}'")
             relevant_docs_data = await self.get_relevant_highlights_async(
-                query=search_query, # 抽出したキーワードを使用
+                query=query, # Pass the original query here
                 k=30,
-                hybrid_alpha=0.5,
+                hybrid_alpha=0.5, # Keep hybrid approach for ranking
                 book_weight=0.2,
-                use_expanded=False # キーワード抽出したので、ここでの拡張は不要
+                use_expanded=False # This parameter is effectively ignored now
             )
+            logger.info(f"関連ハイライト検索完了 (generate_answer内): {len(relevant_docs_data)}件取得")
 
             # 書籍ごとのハイライト数をログ出力
             book_counts = {}
