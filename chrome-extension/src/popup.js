@@ -361,7 +361,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // 完了、エラー、キャンセルのメッセージを判定
         const isError = message.includes('エラー') || message.includes('失敗') || message.includes('タイムアウト');
         const isCancelled = message.includes('キャンセル');
-        const isComplete = message.includes('完了');
+        // ★ 修正: 全体完了の判定を追加 (processed === total かつメッセージに「完了」)
+        const isOverallComplete = (processed === total && message.includes('完了'));
 
         // ステータス表示を更新
         if (isError) {
@@ -370,12 +371,13 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (isCancelled) {
             showStatus('warning', message);
             setUIState(true, false); // キャンセル時は収集終了
-        } else if (isComplete) {
+        } else if (isOverallComplete) { // ★ 修正: 全体完了の場合のみ isCollecting を false にする
             showStatus('success', message);
-            setUIState(true, false); // 完了時は収集終了
+            setUIState(true, false); // 全体完了時は収集終了
         } else {
-            // 処理中のメッセージ
+            // 処理中のメッセージ (個別の完了メッセージも含む)
             showStatus('info', message);
+            // isCollecting は true のまま
         }
       }
     }
