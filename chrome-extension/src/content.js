@@ -1,3 +1,6 @@
+// content.js ロード確認ログ
+console.log("Booklight AI: content.js loaded for:", window.location.href);
+
 // ダミーデータのインポート（開発用）
 let dummyData = null;
 // 注: コンテンツスクリプトではimportScriptsは使用できません
@@ -14,137 +17,155 @@ try {
   console.log('Booklight AI: ダミーデータの取得に失敗しました', e);
 }
 
-// Kindle Web Readerからハイライトを収集する関数
+// Kindleノートブックページからハイライトを収集する関数
 function collectHighlights() {
   try {
-    console.log('Booklight AI: ハイライト収集を開始します');
-    
+    console.log('Booklight AI: ノートブックページからのハイライト収集を開始します');
+
     // テストモードの確認（URLパラメータに?test=trueが含まれる場合）
     const isTestMode = window.location.search.includes('test=true');
     if (isTestMode && dummyData) {
       console.log('Booklight AI: テストモードでダミーデータを使用します');
       return dummyData.simulateHighlightCollection();
     }
-    
+
     // テストページの確認
     const isTestPage = window.location.href.includes('test-page.html');
     if (isTestPage) {
       return collectHighlightsFromTestPage();
     }
-    
-    // 書籍情報の取得
-    const bookTitle = document.querySelector('.reader-title') || 
-                      document.querySelector('.book-title') || 
-                      document.querySelector('.kindle-title') ||
-                      document.querySelector('h1') || 
-                      document.title || 'Unknown Book';
-    const bookTitleText = bookTitle.textContent ? bookTitle.textContent.trim() : 'Unknown Book';
-    
-    const authorElement = document.querySelector('.reader-author') || 
-                         document.querySelector('.book-author') || 
-                         document.querySelector('.kindle-author') ||
-                         document.querySelector('h2');
-    const author = authorElement ? authorElement.textContent.trim() : 'Unknown Author';
-    
-    console.log(`Booklight AI: 書籍「${bookTitleText}」(${author})のハイライトを収集します`);
-    
-    // ハイライト要素の取得
-    const selectors = [
-      'div#annotation-scroller .a-row.a-spacing-top-extra-large.kp-notebook-annotation-container',
-      '.kp-notebook-highlight',
-      '.kindle-highlight',
-      '.highlight',
-      '.a-size-base-plus.a-color-base',
-      'div.a-row.a-spacing-top-extra-large',
-      '.kp-notebook-highlight-text', // Kindleの新しいセレクタ
-      '.a-row.a-spacing-base', // 別の可能性
-      '.kp-notebook-cover-annotation-container', // ノートブックカバーのコンテナ
-      '.kp-notebook-library-annotation-container' // ライブラリアノテーションコンテナ
-    ];
-    
-    let highlightElements = [];
-    for (const selector of selectors) {
-      const elements = document.querySelectorAll(selector);
-      if (elements && elements.length > 0) {
-        highlightElements = Array.from(elements);
-        console.log(`Booklight AI: セレクタ '${selector}' でハイライトを検出しました (${elements.length}件)`);
-        break;
-      }
+
+    // ページ上の書籍タイトル要素を取得
+    const allTitleElements = document.querySelectorAll('h3.kp-notebook-selectable.kp-notebook-metadata');
+
+    if (!allTitleElements || allTitleElements.length === 0) {
+        console.log('Booklight AI: 書籍タイトルが見つかりませんでした');
+        return {
+            success: false,
+            message: 'ハイライトが見つかりませんでした。Kindleのノートブックページを開いているか確認してください。'
+        };
     }
-    
-    if (!highlightElements || highlightElements.length === 0) {
-      console.log('Booklight AI: ハイライトが見つかりませんでした');
-      return { 
-        success: false, 
-        message: 'ハイライトが見つかりませんでした。Kindleのハイライトページを開いているか確認してください。' 
-      };
+
+    console.log(`Booklight AI: ${allTitleElements.length}件の書籍タイトルを検出しました`);
+
+    let allCollectedHighlights = [];
+    const bookLimit = 10; // 取得する書籍の上限
+
+    // 最初の10冊の書籍に対して処理
+    for (let i = 0; i < Math.min(allTitleElements.length, bookLimit); i++) {
+        const titleElement = allTitleElements[i];
+        const bookTitleText = titleElement.textContent.trim();
+
+        // タイトル要素から書籍セクションを特定 (親要素を辿る)
+        let bookContainer = titleElement;
+        let author = '不明な著者';
+        let coverImageUrl = null;
+        for (let j = 0; j < 5 && bookContainer.parentElement; j++) { // 5レベルまで遡る
+             bookContainer = bookContainer.parentElement;
+             // このコンテナ内に著者とカバー画像があるか探す
+             const authorElement = bookContainer.querySelector('p.a-size-base.a-color-secondary.kp-notebook-selectable.kp-notebook-metadata');
+             if (authorElement) author = authorElement.textContent.trim();
+             const coverImageElement = bookContainer.querySelector('img.kp-notebook-cover-image-border');
+             if (coverImageElement) coverImageUrl = coverImageElement.src;
+             // ハイライト要素もこのコンテナ内にあるはず
+             const highlightElements = bookContainer.querySelectorAll('span#highlight.a-size-base-plus.a-color-base');
+             if (highlightElements && highlightElements.length > 0) {
+                 break; // ハイライトが見つかるコンテナを特定
+             }
+        }
+
+        if (!bookContainer) {
+            console.warn(`Booklight AI: 書籍「${bookTitleText}」のコンテナが見つかりませんでした。`);
+            continue; // 次の書籍へ
+        }
+
+        console.log(`Booklight AI: 書籍 #${i + 1} 「${bookTitleText}」(${author}) のハイライトを収集します`);
+
+        // 特定した書籍コンテナ内のハイライト要素を取得
+        const highlightElements = bookContainer.querySelectorAll('span#highlight.a-size-base-plus.a-color-base');
+
+        if (!highlightElements || highlightElements.length === 0) {
+          console.log(`Booklight AI: 書籍「${bookTitleText}」にハイライトが見つかりませんでした`);
+          continue; // 次の書籍へ
+        }
+
+        console.log(`Booklight AI: 書籍「${bookTitleText}」で ${highlightElements.length}件のハイライトを検出しました`);
+
+        // ハイライトデータの作成
+        const highlights = Array.from(highlightElements).map((element, index) => {
+            const content = element.textContent ? element.textContent.trim() : '';
+            let location = ''; // mapスコープ内で宣言
+            const highlightElement = element; // The span#highlight
+
+            console.log(`--- Highlight ${index + 1} ---`);
+            console.log(`Content: ${content.substring(0, 50)}...`);
+
+            // Find the closest ancestor row separator for this specific highlight
+            const rowSeparator = highlightElement.closest('.kp-notebook-row-separator');
+
+            if (rowSeparator) {
+                console.log(`Found closest rowSeparator:`, rowSeparator.className);
+
+                // Priority: Find the hidden input within this specific rowSeparator
+                const hiddenInput = rowSeparator.querySelector('input[type="hidden"]#kp-annotation-location');
+                console.log(`Searching for hidden input within rowSeparator:`, hiddenInput);
+
+                if (hiddenInput && hiddenInput.value) {
+                    location = hiddenInput.value.trim();
+                    console.log(`SUCCESS: Location from hidden input: ${location}`);
+                } else {
+                    console.log(`INFO: Hidden input not found or has no value. Trying fallback.`);
+                    // Fallback: Find the header span within this specific rowSeparator
+                    const headerElement = rowSeparator.querySelector('span#annotationHighlightHeader');
+                    console.log(`Searching for header element within rowSeparator:`, headerElement);
+
+                    if (headerElement) {
+                        const headerText = headerElement.textContent ? headerElement.textContent.trim() : '';
+                        console.log(`Header text found: ${headerText}`);
+                        const match = headerText.match(/(?:位置|ページ):\s*(\d+)/);
+                        if (match && match[1]) {
+                            location = match[1];
+                            console.log(`SUCCESS: Location from header (fallback): ${location}`);
+                        } else {
+                            console.warn(`WARN: Could not extract location number from header text: ${headerText}`);
+                        }
+                    } else {
+                        console.warn(`WARN: Could not find header element (span#annotationHighlightHeader) within row separator.`);
+                    }
+                }
+            } else {
+                // This case should ideally not happen if the HTML structure is consistent
+                console.error(`ERROR: Could not find parent row separator (.kp-notebook-row-separator) for highlight: ${content.substring(0, 20)}...`);
+            }
+
+            console.log(`Final location determined for Highlight ${index + 1}: ${location}`);
+            console.log(`--- End Highlight ${index + 1} ---`);
+
+             return {
+                book_title: bookTitleText,
+          author: author,
+          content: content,
+          location: location,
+          cover_image_url: coverImageUrl
+        };
+        }).filter(h => h.content); // 空のハイライトを除外
+
+        allCollectedHighlights = allCollectedHighlights.concat(highlights);
+    } // 書籍ループの終了
+
+    console.log(`Booklight AI: 合計 ${allCollectedHighlights.length}件の有効なハイライトを収集しました (最大${bookLimit}冊)`);
+
+    if (allCollectedHighlights.length === 0) {
+        return {
+            success: false,
+            message: '有効なハイライトが見つかりませんでした。'
+        };
     }
-    
-    console.log(`Booklight AI: ${highlightElements.length}件のハイライトを検出しました`);
-    
-    // ハイライトデータの作成
-    const highlights = highlightElements.map((element, index) => {
-      // テキストコンテンツを取得
-      let content = '';
-      
-      // テキスト要素の検索優先順位
-      const textSelectors = [
-        '.kp-notebook-highlight-text',       // 標準的なKindleハイライトテキスト
-        '.a-size-base-plus.a-color-base',    // 代替セレクタ
-        '.highlight-text',                   // 別の可能性
-        '.a-size-base'                       // さらに別の可能性
-      ];
-      
-      // 指定されたセレクタでテキスト要素を探す
-      for (const selector of textSelectors) {
-        const textElement = element.querySelector(selector);
-        if (textElement && textElement.textContent) {
-          content = textElement.textContent.trim();
-          break;
-        }
-      }
-      
-      // セレクタでテキストが見つからなければ、要素自体のテキストを使用
-      if (!content && element.textContent) {
-        content = element.textContent.trim();
-      }
-      
-      // 位置情報の取得
-      let location = '';
-      const locationSelectors = [
-        '.kp-notebook-highlight-location',
-        '.a-color-secondary',
-        '.highlight-location',
-        '.a-size-small'
-      ];
-      
-      for (const selector of locationSelectors) {
-        const locationElement = element.querySelector(selector) || 
-                               element.parentElement?.querySelector(selector);
-        if (locationElement && locationElement.textContent) {
-          location = locationElement.textContent.trim();
-          break;
-        }
-      }
-      
-      console.log(`Booklight AI: ハイライト #${index + 1} 抽出: ${content.substring(0, 30)}...`);
-      
-      return {
-        book_title: bookTitleText,
-        author: author,
-        content: content,
-        location: location
-      };
-    }).filter(h => h.content); // 空のハイライトを除外
-    
-    console.log(`Booklight AI: ${highlights.length}件のハイライトを収集しました`);
-    
+
     return {
       success: true,
       data: {
-        book_title: bookTitleText,
-        author: author,
-        highlights: highlights
+        highlights: allCollectedHighlights
       }
     };
   } catch (error) {
@@ -160,6 +181,7 @@ function collectHighlights() {
 function collectHighlightsFromTestPage() {
   try {
     console.log('Booklight AI: テストページからハイライトを収集します');
+
     
     // 書籍情報の取得
     const bookTitle = document.querySelector('h1')?.nextElementSibling?.textContent || '不明な書籍';
