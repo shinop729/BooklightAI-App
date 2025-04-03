@@ -474,9 +474,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // 非同期の可能性も考慮
   }
 
+  // --- 新機能: popup.jsからの書籍リスト取得リクエストに対応 ---
+  if (request.action === 'getBookList') {
+    console.log('Booklight AI: getBookList リクエストを受信');
+    // Kindleノートブックのサイドバーから書籍リストを取得する関数を呼び出す
+    // 注意: getBookLinks はサイドバーのリストを取得する関数として実装済み
+    const result = getBookLinks();
+    console.log('Booklight AI: getBookLinks 結果:', result);
+    sendResponse(result);
+    return true; // 非同期応答のため true を返す
+  }
+
   // --- 新機能: バックグラウンドからのリクエストに対応 ---
+  // getBookLinks は popup.js からのリクエストで使うため、ここではコメントアウトまたは削除
+  /*
   if (request.action === 'getBookLinks') {
     const result = getBookLinks();
+    sendResponse(result);
+    return true; // 非同期の可能性も考慮
+  }
+  */
+
+  if (request.action === 'extractCurrentBookData') {
+    const result = extractCurrentBookData();
     sendResponse(result);
     return true; // 非同期の可能性も考慮
   }

@@ -2,6 +2,7 @@
 // const API_BASE_URL = 'http://localhost:8000'; // 開発環境
 const API_BASE_URL = 'https://booklight-ai.com'; // 本番環境
 const SYNC_API_ENDPOINT = `${API_BASE_URL}/api/sync-highlights`; // 差分同期用エンドポイント
+const CSV_EXPORT_KEY = 'csvExportData'; // CSVエクスポート用データキー
 
 // 開発モードの設定
 const DEV_MODE = true; // 開発環境ではtrueに設定
@@ -19,6 +20,16 @@ try {
 } catch (e) {
   console.log('Booklight AI: ダミーデータのインポートに失敗しました（本番環境では正常）', e);
 }
+
+// --- 一括取得用グローバル変数 ---
+let isCollectingAll = false; // 一括取得中フラグ
+let progressCallback = null; // 進捗通知用コールバック
+let bookQueue = []; // 処理待ち書籍キュー
+let allCollectedData = {}; // 全書籍データ格納用
+let currentCollectionTabId = null; // 処理中のタブID
+let originalTabUrl = null; // 元のタブURL
+// --- 一括取得用グローバル変数ここまで ---
+
 
 /**
  * 文字列からシンプルなハッシュ値を生成する関数 (簡易版)
@@ -109,6 +120,52 @@ async function saveBookSyncStatus(storageKey, lastSyncTimestamp, syncedHighlight
     return false;
   }
 }
+
+/**
+ * CSVエクスポート用の書籍データをローカルストレージに保存/更新する
+ * @param {object} bookData - 書籍データ { book_title, author, cover_image_url, highlights: [{ content, location, timestamp? }] }
+ */
+async function saveDataForCsvExport(bookData) {
+  const { book_title, author, cover_image_url, highlights } = bookData;
+  if (!book_title || !author || !Array.isArray(highlights)) {
+    console.warn('Booklight AI: CSVエクスポート用のデータ保存に必要な情報が不足しています', bookData);
+    return;
+  }
+
+  // 書籍IDを生成 (ストレージキーとは別に、データ内のIDとして使用)
+  // generateBookStorageKey は 'sync-' プレフィックスが付くので、ここではシンプルなハッシュを使う
+  const bookId = simpleHash(`${book_title}-${author}`);
+
+  try {
+    const result = await chrome.storage.local.get(CSV_EXPORT_KEY);
+    const existingData = result[CSV_EXPORT_KEY] || {};
+
+    // ハイライトデータにタイムスタンプを追加（なければ現在時刻）
+    // content.jsから渡されるキー名に合わせる (content -> text)
+    const timestampedHighlights = highlights.map(h => ({
+      text: h.content, // popup.jsのconvertToCSVとキーを合わせる
+      location: h.location,
+      timestamp: h.timestamp || new Date().toISOString()
+    }));
+
+    // 既存データに今回の書籍データを追加または上書き
+    existingData[bookId] = {
+      id: bookId, // 書籍IDも保存
+      title: book_title,
+      author: author,
+      coverSrc: cover_image_url, // popup.jsのconvertToCSVとキーを合わせる
+      highlights: timestampedHighlights,
+      lastUpdated: new Date().toISOString() // 最終更新日時
+    };
+
+    await chrome.storage.local.set({ [CSV_EXPORT_KEY]: existingData });
+    console.log(`Booklight AI: CSVエクスポート用データを更新しました (Book ID: ${bookId})`);
+
+  } catch (error) {
+    console.error('Booklight AI: CSVエクスポート用データの保存中にエラーが発生しました', error);
+  }
+}
+
 
 /**
  * 書籍データを同期する（差分検出とAPI送信）
@@ -366,40 +423,297 @@ async function sendSyncPayloadToAPIOnly(payload) {
     }
 }
 
-// 一括取得を開始する関数
-async function startCollectingAllBooks(books, callback) {
-  if (isCollectingAll) {
-    return { success: false, message: '既に一括取得処理が実行中です' };
+// --- 一括取得関連関数 ---
+
+/**
+ * 進捗状況をpopup.jsに通知する関数
+ * @param {number} processed - 処理済み書籍数
+ * @param {number} total - 全書籍数
+ * @param {string} message - 表示メッセージ
+ */
+function notifyProgress(processed, total, message) {
+  console.log(`Booklight AI: Progress - ${processed}/${total} - ${message}`);
+  // popup.jsに進捗を送信
+  chrome.runtime.sendMessage({
+    action: 'updateProgress',
+    processed: processed,
+    total: total,
+    message: message
+  }).catch(error => {
+    // ポップアップが閉じている場合などにエラーが発生する可能性がある
+    if (error.message.includes("Could not establish connection") || error.message.includes("Receiving end does not exist")) {
+      console.warn("Booklight AI: ポップアップへの進捗通知に失敗しました (ポップアップが閉じている可能性があります)");
+    } else {
+      console.error("Booklight AI: ポップアップへの進捗通知中に予期せぬエラーが発生しました", error);
+    }
+  });
+}
+
+/**
+ * 一括取得完了処理
+ */
+async function completeCollection(status, message) {
+  console.log(`Booklight AI: 一括取得完了 (${status}) - ${message}`);
+  const totalCount = (allCollectedData && Object.keys(allCollectedData).length) || 0; // 処理済み件数を取得
+  const initialTotal = totalCount + bookQueue.length; // 完了時点での合計数 (キューは空のはず)
+
+  notifyProgress(totalCount, initialTotal, message); // 最終ステータスを通知
+
+  // 状態をリセット
+  isCollectingAll = false;
+  bookQueue = [];
+  allCollectedData = {};
+
+  // 元のタブURLに戻す
+  if (currentCollectionTabId && originalTabUrl) {
+    try {
+      await chrome.tabs.update(currentCollectionTabId, { url: originalTabUrl });
+      console.log(`Booklight AI: タブ ${currentCollectionTabId} を元のURLに戻しました: ${originalTabUrl}`);
+    } catch (error) {
+      console.warn(`Booklight AI: タブを元のURLに戻せませんでした (ID: ${currentCollectionTabId})`, error);
+    }
+  }
+  currentCollectionTabId = null;
+  originalTabUrl = null;
+}
+
+/**
+ * ページの読み込み完了を待つヘルパー関数
+ * @param {number} tabId - 待機するタブのID
+ * @param {number} timeout - タイムアウト時間 (ミリ秒)
+ * @returns {Promise<void>} - 読み込み完了時に解決されるPromise
+ */
+async function waitForTabLoad(tabId, timeout = 30000) { // タイムアウトを30秒に設定
+  return new Promise((resolve, reject) => {
+    const listener = (updatedTabId, changeInfo, tab) => {
+      // 目的のタブIDで、ステータスが 'complete' になったらリスナーを解除して解決
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        // さらに少し待機して、動的コンテンツの読み込みを考慮 (オプション)
+        setTimeout(() => {
+          chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timer); // タイムアウトをクリア
+          console.log(`Booklight AI: タブ ${tabId} の読み込み完了`);
+          resolve();
+        }, 500); // 0.5秒待機
+      }
+    };
+
+    // タイムアウト処理
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      console.error(`Booklight AI: タブ ${tabId} の読み込みがタイムアウトしました (${timeout}ms)`);
+      reject(new Error(`Tab ${tabId} loading timed out after ${timeout}ms`));
+    }, timeout);
+
+    // リスナーを登録
+    chrome.tabs.onUpdated.addListener(listener);
+
+    // タブが既に読み込み完了しているかチェック (稀なケースだが念のため)
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error(`Failed to get tab ${tabId}: ${chrome.runtime.lastError.message}`));
+      } else if (tab && tab.status === 'complete') {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        console.log(`Booklight AI: タブ ${tabId} は既に読み込み完了していました`);
+        resolve();
+      }
+    });
+  });
+}
+
+
+/**
+ * 書籍キューを処理する関数 (コアロジック実装)
+ */
+async function processBookQueue() {
+  // キャンセルされたかチェック
+  if (!isCollectingAll) {
+    console.log('Booklight AI: processBookQueue - 処理がキャンセルされました');
+    return;
+  }
+
+  // キューが空かチェック
+  if (bookQueue.length === 0) {
+    console.log('Booklight AI: processBookQueue - キューが空になりました');
+    await completeCollection('success', '全書籍のハイライト取得が完了しました');
+    return;
+  }
+
+  // キューから次の書籍を取り出す
+  const nextBook = bookQueue.shift();
+  const totalBooks = (allCollectedData ? Object.keys(allCollectedData).length : 0) + bookQueue.length + 1;
+  const processedCount = totalBooks - bookQueue.length - 1;
+
+  console.log(`Booklight AI: 次の書籍を処理: ${processedCount + 1}/${totalBooks} - ${nextBook.title}`);
+  notifyProgress(processedCount, totalBooks, `書籍「${nextBook.title}」のページに移動中...`);
+
+  if (!currentCollectionTabId) {
+    console.error('Booklight AI: 処理中のタブIDがありません。処理を中断します。');
+    await completeCollection('error', '処理タブが見つからず中断しました');
+    return;
+  }
+
+  try {
+    // タブを指定された書籍のURLに遷移させる
+    console.log(`Booklight AI: タブ ${currentCollectionTabId} を ${nextBook.url} に更新します`);
+    await chrome.tabs.update(currentCollectionTabId, { url: nextBook.url });
+
+    // ページの読み込み完了を待つ
+    console.log(`Booklight AI: タブ ${currentCollectionTabId} の読み込みを待機中...`);
+    notifyProgress(processedCount, totalBooks, `書籍「${nextBook.title}」のページを読み込み中...`);
+    await waitForTabLoad(currentCollectionTabId); // タイムアウトはデフォルトの30秒
+
+    // content.jsにデータ抽出を依頼
+    console.log(`Booklight AI: タブ ${currentCollectionTabId} にデータ抽出を依頼します`);
+    notifyProgress(processedCount, totalBooks, `書籍「${nextBook.title}」のハイライトを抽出中...`);
+    const extractResponse = await chrome.tabs.sendMessage(currentCollectionTabId, { action: 'extractCurrentBookData' });
+
+    // 抽出データを処理
+    if (extractResponse && extractResponse.success && extractResponse.data) {
+      console.log(`Booklight AI: 書籍「${nextBook.title}」のデータ抽出成功`);
+      allCollectedData[nextBook.bookId] = extractResponse.data; // 収集データに追加
+
+      // 個別同期処理を実行
+      notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」を同期中...`);
+      const syncResult = await syncBookData(extractResponse.data);
+      console.log(`Booklight AI: 書籍「${nextBook.title}」同期結果:`, syncResult);
+
+      // CSVエクスポート用データも保存
+      await saveDataForCsvExport(extractResponse.data);
+
+      notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」処理完了`);
+    } else {
+      console.warn(`Booklight AI: 書籍「${nextBook.title}」のデータ抽出に失敗: ${extractResponse?.message}`);
+      notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」の抽出失敗`);
+      // エラーがあっても続行する（次の書籍へ）
+    }
+
+    // 次の書籍の処理をスケジュール (少し間隔を空ける)
+    if (isCollectingAll) {
+      setTimeout(processBookQueue, 1500); // 1.5秒後に次の処理へ (API負荷軽減のため少し長めに)
+    }
+
+  } catch (error) {
+    console.error(`Booklight AI: 書籍「${nextBook.title}」の処理中にエラーが発生しました`, error);
+    notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」処理中にエラー: ${error.message}`);
+    // エラーが発生しても次の書籍の処理に進む
+    if (isCollectingAll) {
+      setTimeout(processBookQueue, 1500); // 1.5秒後に次の処理へ
+    }
+  }
+}
+
+/**
+ * 一括取得処理をキャンセルする関数
+ * @returns {Promise<object>} - キャンセル結果 { success, message }
+ */
+async function cancelCollectAllHighlights() {
+  if (!isCollectingAll) {
+    console.log('Booklight AI: 一括取得処理は実行されていません');
+    return { success: false, message: '一括取得処理は実行されていません' };
+  }
+
+  console.log('Booklight AI: 一括取得処理をキャンセルします');
+  
+  // 処理フラグをオフに
+  isCollectingAll = false;
+  
+  // キューをクリア
+  bookQueue = [];
+  
+  // 元のタブURLに戻す処理
+  if (currentCollectionTabId && originalTabUrl) {
+    try {
+      await chrome.tabs.update(currentCollectionTabId, { url: originalTabUrl });
+      console.log(`Booklight AI: タブ ${currentCollectionTabId} を元のURLに戻しました: ${originalTabUrl}`);
+    } catch (error) {
+      console.warn(`Booklight AI: タブを元のURLに戻せませんでした (ID: ${currentCollectionTabId})`, error);
+    }
   }
   
-  // 進捗コールバックを設定
-  progressCallback = callback;
-  
-  // 初期化
-  isCollectingAll = true;
-  bookQueue = [...books].slice(0, 10); // テスト用に最初の10冊に制限
+  // 状態をリセット
+  currentCollectionTabId = null;
+  originalTabUrl = null;
   allCollectedData = {};
   
-  // 現在のタブを取得
+  return { success: true, message: '一括取得処理をキャンセルしました' };
+}
+
+/**
+ * 一括取得を開始する関数 (popup.jsから書籍リストとタブIDを受け取る)
+ * @param {Array<object>} books - 書籍情報のリスト [{ title, author, url, bookId }]
+ * @param {number|null} tabId - 処理に使用するタブID（オプション）
+ * @returns {Promise<object>} - 処理開始結果 { success, message }
+ */
+async function startCollectingAllBooks(books, tabId = null) {
+  if (isCollectingAll) {
+    console.warn('Booklight AI: 一括取得処理が既に実行中です');
+    return { success: false, message: '既に一括取得処理が実行中です' };
+  }
+  if (!Array.isArray(books) || books.length === 0) {
+    console.error('Booklight AI: 一括取得のための書籍リストが無効です');
+    return { success: false, message: '書籍リストが無効です' };
+  }
+
+  console.log(`Booklight AI: 一括取得を開始します。対象書籍数: ${books.length}`);
+
+  // 初期化
+  isCollectingAll = true;
+  bookQueue = [...books]; // 受け取った書籍リストでキューを初期化
+  allCollectedData = {}; // 収集データリセット
+  currentCollectionTabId = null; // リセット
+  originalTabUrl = null; // リセット
+
+  // 現在のタブを取得して保存し、処理を開始
   try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tabs.length > 0) {
-      currentCollectionTabId = tabs[0].id;
-      originalTabUrl = tabs[0].url;
-      
-      // 処理開始
-      notifyProgress(0, books.length, '一括取得を開始します...');
-      
-      // 最初の書籍の処理を開始
-      setTimeout(processBookQueue, 500);
-      
-      return { success: true, message: '一括取得を開始しました' };
+    // 渡されたtabIdがあればそれを使用、なければクエリで取得
+    if (tabId) {
+      currentCollectionTabId = tabId;
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        originalTabUrl = tab.url; // 元のURLを保存
+      } catch (e) {
+        console.warn(`Booklight AI: 指定されたタブID ${tabId} の情報取得に失敗しました`, e);
+        // タブIDは使用するが、URLは取得できなかった場合は null のまま
+      }
     } else {
-      return { success: false, message: 'アクティブなタブが見つかりません' };
+      // 従来の方法（フォールバック）
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs.length > 0) {
+        currentCollectionTabId = tabs[0].id;
+        originalTabUrl = tabs[0].url; // 元のURLを保存
+      } else {
+        // すべてのタブを取得して最初のタブを使用（最終手段）
+        const allTabs = await chrome.tabs.query({ currentWindow: true });
+        if (allTabs.length > 0) {
+          currentCollectionTabId = allTabs[0].id;
+          originalTabUrl = allTabs[0].url;
+        } else {
+          throw new Error('利用可能なタブが見つかりません');
+        }
+      }
     }
+
+    console.log(`Booklight AI: 処理タブID: ${currentCollectionTabId}, 元のURL: ${originalTabUrl || '不明'}`);
+
+    // 処理開始通知
+    notifyProgress(0, bookQueue.length, '一括取得を開始します...');
+
+    // 最初の書籍の処理を開始 (少し遅延させる)
+    setTimeout(processBookQueue, 500); // 500ms後にキュー処理を開始
+
+    return { success: true, message: '一括取得を開始しました' };
   } catch (error) {
+    // tryブロック内で発生したエラーをキャッチ
     console.error('Booklight AI: 一括取得開始エラー', error);
-    isCollectingAll = false;
+    isCollectingAll = false; // 状態をリセット
+    bookQueue = [];
+    currentCollectionTabId = null;
+    originalTabUrl = null;
+    // エラーメッセージを返す
     return { success: false, message: `一括取得開始エラー: ${error.message}` };
   }
 }
@@ -638,22 +952,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
-  // 一括取得開始
+  // 一括取得開始 (書籍リストとタブIDを受け取るように修正)
   if (request.action === 'collectAllHighlights') {
-    startCollectAllHighlights().then(sendResponse);
-    return true;
+    if (!request.bookList) {
+      sendResponse({ success: false, message: '書籍リストが提供されていません' });
+      return false; // 同期応答
+    }
+    startCollectingAllBooks(request.bookList, request.tabId).then(sendResponse);
+    return true; // 非同期応答
   }
-  
+
   // 一括取得キャンセル
   if (request.action === 'cancelCollectAll') {
     cancelCollectAllHighlights().then(sendResponse);
     return true;
   }
-  
+
   // 書籍の同期ステータスを取得
   if (request.action === 'getSyncStatus') {
     getSyncStatus(request.bookTitle, request.bookAuthor).then(sendResponse);
     return true;
+  }
+
+  // CSVエクスポート用データを取得
+  else if (request.action === 'getCsvExportData') {
+    console.log('Booklight AI: getCsvExportData アクションを受信');
+    chrome.storage.local.get(CSV_EXPORT_KEY, (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('Booklight AI: CSVエクスポートデータの取得エラー', chrome.runtime.lastError);
+        sendResponse({ success: false, message: `ストレージ取得エラー: ${chrome.runtime.lastError.message}` });
+      } else {
+        sendResponse({ success: true, data: result[CSV_EXPORT_KEY] || {} }); // データがない場合は空オブジェクトを返す
+      }
+    });
+    return true; // 非同期応答
+  }
+
+  // ダミーデータを取得 (コンテンツスクリプトからのリクエスト)
+  else if (request.action === 'getDummyData') {
+    console.log('Booklight AI: getDummyData アクションを受信');
+    if (DEV_MODE && dummyData) {
+      sendResponse({ success: true, data: dummyData });
+    } else {
+      sendResponse({ success: false, message: 'Dummy data not available or not in dev mode' });
+    }
+    return false; // 同期的に応答するのでfalse
   }
 });
 
@@ -777,6 +1120,9 @@ async function syncCurrentBookHighlights() {
         message: extractResponse?.message || 'ハイライトデータの抽出に失敗しました' 
       };
     }
+
+    // 抽出されたデータをCSVエクスポート用に保存
+    await saveDataForCsvExport(extractResponse.data);
     
     // 抽出されたデータを同期
     const syncResult = await syncBookData(extractResponse.data);

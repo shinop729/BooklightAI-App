@@ -236,36 +236,64 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // 一括取得処理の開始
-        startCollection();
-    });
-    
-    // 一括取得処理を開始する関数
-    function startCollection() {
-        // 進捗表示の初期化
-        updateProgressUI(0, 100, '書籍リストを取得中...');
-        
-        // バックグラウンドに一括取得開始を依頼
-        console.log("Booklight AI: Sending 'collectAllHighlights' message to background script");
-        chrome.runtime.sendMessage({ action: 'collectAllHighlights' }, function(response) {
-            console.log("Booklight AI: 'collectAllHighlights' initial response:", response);
-            
-            // エラー処理
+        // content.js に書籍リスト取得を依頼
+        console.log("Booklight AI: Sending 'getBookList' message to content script");
+        chrome.tabs.sendMessage(currentTab.id, { action: 'getBookList' }, function(bookListResponse) {
             if (chrome.runtime.lastError) {
-                console.error("Booklight AI: Error sending message:", chrome.runtime.lastError);
-                showDetailedError('バックグラウンドとの通信に失敗: ' + chrome.runtime.lastError.message);
+                showDetailedError('コンテンツスクリプトとの通信に失敗: ' + chrome.runtime.lastError.message);
                 setUIState(true, false);
                 return;
             }
             
-            // 処理開始エラー（既に実行中など）
-            if (response && !response.success) {
-                showStatus('warning', response.message || '一括取得の開始に失敗しました');
+            if (!bookListResponse || !bookListResponse.success || !bookListResponse.data || bookListResponse.data.length === 0) {
+                showStatus('error', bookListResponse?.message || '書籍リストの取得に失敗しました。Kindleノートブックページを確認してください。');
                 setUIState(true, false);
+                return;
             }
             
-            // 成功した場合は、進捗は別途 updateProgress メッセージで受信
-            console.log("Booklight AI: collectAllHighlights メッセージ送信完了");
+            const bookList = bookListResponse.data;
+            console.log(`Booklight AI: Received ${bookList.length} books from content script`);
+            
+            // 書籍リストを添えて一括取得処理を開始
+            startCollection(bookList);
+        });
+    });
+    
+    // 一括取得処理を開始する関数 (書籍リストを受け取るように変更)
+    function startCollection(bookList) {
+        // 進捗表示の初期化 (書籍数を反映)
+        updateProgressUI(0, bookList.length, 'バックグラウンド処理を開始中...');
+        
+        // 現在のタブIDを取得して一緒に送信
+        chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+            const currentTabId = tabs.length > 0 ? tabs[0].id : null;
+            
+            // バックグラウンドに一括取得開始を依頼 (書籍リストとタブIDを渡す)
+            console.log("Booklight AI: Sending 'collectAllHighlights' message to background script with book list");
+            chrome.runtime.sendMessage({ 
+                action: 'collectAllHighlights', 
+                bookList: bookList,
+                tabId: currentTabId // タブIDを追加
+            }, function(response) {
+                console.log("Booklight AI: 'collectAllHighlights' initial response:", response);
+                
+                // エラー処理 (変更なし)
+                if (chrome.runtime.lastError) {
+                    console.error("Booklight AI: Error sending message:", chrome.runtime.lastError);
+                    showDetailedError('バックグラウンドとの通信に失敗: ' + chrome.runtime.lastError.message);
+                    setUIState(true, false);
+                    return;
+                }
+                
+                // 処理開始エラー（既に実行中など）
+                if (response && !response.success) {
+                    showStatus('warning', response.message || '一括取得の開始に失敗しました');
+                    setUIState(true, false);
+                }
+                
+                // 成功した場合は、進捗は別途 updateProgress メッセージで受信
+                console.log("Booklight AI: collectAllHighlights メッセージ送信完了");
+            });
         });
     }
     
@@ -435,31 +463,29 @@ document.addEventListener('DOMContentLoaded', function() {
       downloadCsvBtn.disabled = true; // ボタンを無効化
 
       try {
-        // アクティブなタブを取得
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs || tabs.length === 0) {
-          throw new Error('アクティブなタブが見つかりません');
+        // バックグラウンドスクリプトにCSVエクスポート用データの取得を依頼
+        const response = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ action: 'getCsvExportData' }, (res) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else if (res && res.success) {
+              resolve(res);
+            } else {
+              reject(new Error(res?.message || '全書籍データの取得に失敗しました'));
+            }
+          });
+        });
+
+        const allBookData = response.data;
+        if (!allBookData || Object.keys(allBookData).length === 0) {
+            throw new Error('ローカルストレージに書籍データが見つかりません');
         }
-        const tabId = tabs[0].id;
 
-        // コンテンツスクリプトにデータ抽出を依頼
-        const response = await chrome.tabs.sendMessage(tabId, { action: 'extractCurrentBookData' });
+        // CSVデータを生成 (全書籍データを渡す)
+        const csvData = convertToCSV(allBookData);
 
-        if (!response || !response.success) {
-          throw new Error(response?.message || 'ハイライトデータの抽出に失敗しました');
-        }
-
-        const bookData = response.data;
-        if (!bookData || !bookData.highlights) {
-            throw new Error('抽出データが不正です');
-        }
-
-        // CSVデータを生成
-        const csvData = convertToCSV(bookData);
-
-        // ファイル名を生成 (ファイル名に使えない文字を置換)
-        const safeTitle = bookData.book_title.replace(/[\\/:*?"<>|]/g, '_');
-        const filename = `${safeTitle}.csv`;
+        // ファイル名を生成
+        const filename = `booklight_all_highlights.csv`;
 
         // CSVファイルをダウンロード
         downloadCSV(csvData, filename);
@@ -477,12 +503,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // データをCSV形式に変換する関数
-  function convertToCSV(bookData) {
-    const { book_title, author, cover_image_url, highlights } = bookData;
-    const header = ['Book Title', 'Author', 'Cover Image URL', 'Highlight Content', 'Location'];
+  // 全書籍データをCSV形式に変換する関数
+  function convertToCSV(allBookData) {
+    const header = ['Book Title', 'Author', 'Cover Image URL', 'Highlight Content', 'Location', 'Highlight Timestamp'];
 
-    // エスケープ処理関数
+    // エスケープ処理関数 (変更なし)
     const escapeCSV = (field) => {
       if (field === null || field === undefined) {
         return '';
@@ -497,20 +522,27 @@ document.addEventListener('DOMContentLoaded', function() {
       return stringField;
     };
 
-    // ヘッダー行
+    // ヘッダー行 (変更なし)
     const csvRows = [header.map(escapeCSV).join(',')];
 
-    // データ行
-    highlights.forEach(h => {
-      const row = [
-        book_title,
-        author,
-        cover_image_url,
-        h.content,
-        h.location
-      ];
-      csvRows.push(row.map(escapeCSV).join(','));
-    });
+    // データ行 (全書籍データをループ)
+    for (const bookId in allBookData) {
+      const book = allBookData[bookId];
+      if (book && book.title && book.author && Array.isArray(book.highlights)) {
+        const { title, author, coverSrc, highlights } = book;
+        highlights.forEach(h => {
+          const row = [
+            title,
+            author,
+            coverSrc || '', // カバー画像がない場合も考慮
+            h.text, // ハイライトのキーを 'text' に合わせる (background.jsの実装に依存)
+            h.location,
+            h.timestamp || '' // タイムスタンプがない場合も考慮
+          ];
+          csvRows.push(row.map(escapeCSV).join(','));
+        });
+      }
+    }
 
     // BOM付きUTF-8で返す
     return '\ufeff' + csvRows.join('\n');
