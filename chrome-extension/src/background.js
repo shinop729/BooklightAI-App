@@ -31,7 +31,7 @@ async function startCollectingAllBooks(books, callback) {
   
   // 初期化
   isCollectingAll = true;
-  bookQueue = [...books];
+  bookQueue = [...books].slice(0, 10); // テスト用に最初の10冊に制限
   allCollectedData = {};
   
   // 現在のタブを取得
@@ -876,29 +876,82 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, message: '送信するハイライトがありません' });
     }
   } else if (request.action === 'collectAllHighlights') {
-      isAsync = true; // 非同期処理を示す
-      // コンテンツスクリプトから書籍リストを取得する処理が必要
-      // この例では、仮に書籍リストが取得済みとして進める
-      // 実際には content script との連携が必要
-      console.log("Booklight AI: collectAllHighlights action received (implementation needed)");
-      // TODO: コンテンツスクリプトから書籍リストを取得するロジックを追加
-      const dummyBooks = [ /* { title: 'Book 1', url: '...' } */ ]; // 仮の書籍リスト
-      startCollectingAllBooks(dummyBooks, sendResponse).then(result => {
-          // startCollectingAllBooks は初期応答を返し、進捗は別途通知される
-          // ここでは初期応答のみ返す
-          sendResponse(result);
-      }).catch(error => {
-          sendResponse({ success: false, message: `一括取得開始エラー: ${error.message}` });
-      });
+    isAsync = true; // 非同期処理を示す
+    console.log("Booklight AI: collectAllHighlights action received");
+
+    // アクティブなタブを取得してコンテンツスクリプトに書籍リストを要求
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (chrome.runtime.lastError) {
+            console.error("Booklight AI: Error querying tabs:", chrome.runtime.lastError.message);
+            sendResponse({ success: false, message: `タブの取得エラー: ${chrome.runtime.lastError.message}` });
+            return; // エラー時はここで終了
+        }
+        if (tabs.length === 0) {
+            console.log("Booklight AI: No active tab found.");
+            sendResponse({ success: false, message: 'アクティブなタブが見つかりません。' });
+            return; // タブがない場合はここで終了
+        }
+        const tabId = tabs[0].id;
+        console.log(`Booklight AI: Found active tab ID: ${tabId}`);
+
+        // コンテンツスクリプトに getBookLinks メッセージを送信
+        chrome.tabs.sendMessage(tabId, { action: 'getBookLinks' }, (response) => {
+            if (chrome.runtime.lastError) {
+                // コンテンツスクリプトが存在しない、または応答しない場合のエラー
+                console.error("Booklight AI: Error sending getBookLinks message:", chrome.runtime.lastError.message);
+                sendResponse({ success: false, message: `コンテンツスクリプトとの通信エラー: ${chrome.runtime.lastError.message}. Kindleノートブックページを開いているか確認してください。` });
+                return; // エラー時はここで終了
+            }
+
+            if (response && response.success && Array.isArray(response.data)) {
+                console.log(`Booklight AI: Received ${response.data.length} books from content script.`);
+                // 取得した書籍リストで一括取得を開始
+                // startCollectingAllBooks は Promise を返し、内部で初期応答を行う
+                startCollectingAllBooks(response.data, null) // progressCallback は startCollectingAllBooks 内部で設定されるため null を渡す
+                  .then(initialResult => {
+                    // startCollectingAllBooks が返す初期応答 (成功/失敗メッセージ) をポップアップに返す
+                    console.log("Booklight AI: startCollectingAllBooks initial response:", initialResult);
+                    // ★重要: ここで sendResponse を呼ぶと、startCollectingAllBooks 内の初期応答と競合する可能性がある。
+                    // startCollectingAllBooks が初期応答を確実に返す設計なら、ここでは不要。
+                    // ただし、startCollectingAllBooks が失敗した場合のエラー応答は必要。
+                    // → startCollectingAllBooks が初期応答を返すので、ここでは sendResponse しない。
+                    //   エラーは catch で捕捉する。
+                  })
+                  .catch(error => {
+                    console.error("Booklight AI: Error starting collection:", error);
+                    // startCollectingAllBooks 自体の開始エラーをポップアップに返す
+                    sendResponse({ success: false, message: `一括取得開始エラー: ${error.message}` });
+                  });
+                 // startCollectingAllBooks が非同期で開始されるため、
+                 // ここで sendResponse を呼ばずに listener から抜けることで非同期応答を示す。
+                 // ポップアップは startCollectingAllBooks 内からの最初の notifyProgress を待つ。
+            } else {
+                // コンテンツスクリプトからの応答が不正な場合
+                console.error("Booklight AI: Failed to get book links from content script or invalid response:", response);
+                sendResponse({ success: false, message: `書籍リストの取得に失敗しました: ${response?.message || 'コンテンツスクリプトからの応答が不正です。'}` });
+            }
+        });
+    });
+    // return true; // 非同期応答を示すために true を返す (addListener の外側で return isAsync するのでここでは不要)
 
   } else if (request.action === 'cancelCollectAll') {
       isCollectingAll = false; // 収集フラグをリセット
       bookQueue = []; // キューをクリア
       console.log("Booklight AI: 一括取得がキャンセルされました");
-      // 必要に応じて進行中のタブ操作を停止する処理を追加
-      sendResponse({ success: true, message: '一括取得をキャンセルしました' });
-  }
-  // 他のアクションもここに追加...
+        // 必要に応じて進行中のタブ操作を停止する処理を追加
+        sendResponse({ success: true, message: '一括取得をキャンセルしました' });
+    } else if (request.action === 'getDummyData') {
+      if (DEV_MODE && dummyData) {
+        console.log("Booklight AI: Sending dummy data to content script");
+        sendResponse({ success: true, data: dummyData }); // ダミーデータを返す
+      } else {
+        console.log("Booklight AI: Not in DEV_MODE or no dummy data available");
+        sendResponse({ success: false, message: 'Dummy data not available' });
+      }
+      // sendResponse を同期的に呼び出す場合は true を返す必要はない
+      // もし dummyData の取得が非同期なら isAsync = true; return true; が必要
+    }
+    // 他のアクションもここに追加...
 
   // 非同期応答の場合は true を返す必要がある
   return isAsync;
