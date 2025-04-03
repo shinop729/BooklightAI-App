@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '../api/client';
+import apiClient, { searchHighlights, prefetchSearchResults, clearSearchCache } from '../api/client';
 import { SearchResult, SearchRequest, SearchResponse } from '../types';
+import { useDebounce } from './useDebounce';
 
 /**
  * 検索オプション
@@ -15,61 +16,96 @@ interface SearchOptions {
 
 export const useSearch = (initialKeywords: string[] = []) => {
   const [keywords, setKeywords] = useState<string[]>(initialKeywords);
-  const [options, setOptions] = useState<SearchOptions>({
-    hybrid_alpha: 0.7,
-    book_weight: 0.3,
-    use_expanded: true
-  });
+  const [isSearching, setIsSearching] = useState(false);
   
-  // TanStack Query を使用したAPI通信
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['search', keywords, options],
+  // キーワードの変更をデバウンス
+  const debouncedKeywords = useDebounce(keywords, 300);
+  
+  // React Query を使用したAPI通信（シンプル化）
+  const { data, isLoading, error, refetch, isRefetching } = useQuery({
+    queryKey: ['search', debouncedKeywords],
     queryFn: async () => {
-      if (keywords.length === 0) return { results: [] };
+      if (debouncedKeywords.length === 0) return { results: [] };
       
-      const searchRequest: SearchRequest = {
-        keywords,
-        ...options
-      };
+      setIsSearching(true);
       
-      const { data } = await apiClient.post<SearchResponse>('/api/search', searchRequest);
-      
-      return data.data;
+      try {
+        console.log('検索リクエスト送信:', { keywords: debouncedKeywords });
+        
+        const searchRequest: SearchRequest = {
+          keywords: debouncedKeywords,
+          limit: 30
+        };
+        
+        // 検索関数を使用
+        const response = await searchHighlights(searchRequest);
+        console.log('検索レスポンス受信:', response);
+        
+        if (!response.success) {
+          throw new Error(response.message || '検索に失敗しました');
+        }
+        
+        return response.data;
+      } catch (err) {
+        console.error('検索エラー:', err);
+        throw err;
+      } finally {
+        setIsSearching(false);
+      }
     },
     // キーワードが空の場合は実行しない
-    enabled: keywords.length > 0
+    enabled: debouncedKeywords.length > 0,
+    // キャッシュ設定
+    staleTime: 5 * 60 * 1000,  // 5分間キャッシュ
+    gcTime: 10 * 60 * 1000  // 10分間キャッシュを保持
   });
   
-  const addKeyword = (keyword: string) => {
-    if (keyword && !keywords.includes(keyword)) {
-      setKeywords([...keywords, keyword]);
+  // キーワード変更時に自動的に検索を実行
+  useEffect(() => {
+    if (debouncedKeywords.length > 0) {
+      refetch();
     }
-  };
+  }, [debouncedKeywords, refetch]);
   
-  const removeKeyword = (keyword: string) => {
-    setKeywords(keywords.filter(k => k !== keyword));
-  };
+  const addKeyword = useCallback((keyword: string) => {
+    if (keyword && !keywords.includes(keyword)) {
+      setKeywords(prev => [...prev, keyword]);
+    }
+  }, [keywords]);
   
-  const clearKeywords = () => {
+  const removeKeyword = useCallback((keyword: string) => {
+    setKeywords(prev => prev.filter(k => k !== keyword));
+  }, []);
+  
+  const clearKeywords = useCallback(() => {
     setKeywords([]);
-  };
+  }, []);
   
   /**
-   * 検索オプションを設定
+   * 検索オプションを設定（シンプル化のため現在は使用しない）
    */
-  const setSearchOptions = (newOptions: SearchOptions) => {
-    setOptions(prev => ({ ...prev, ...newOptions }));
-  };
+  const setSearchOptions = useCallback((_newOptions: SearchOptions) => {
+    // シンプル化のため、オプション設定は無効化
+    console.log('検索オプションの設定は現在無効化されています');
+  }, []);
+  
+  /**
+   * 検索キャッシュをクリア
+   */
+  const clearCache = useCallback(() => {
+    clearSearchCache();
+  }, []);
   
   return {
     keywords,
-    results: data?.results || [],
-    isLoading,
+    results: data?.results || ([] as any[]),
+    isLoading: isLoading || isRefetching || isSearching,
     error,
     addKeyword,
     removeKeyword,
     clearKeywords,
     search: refetch,
-    setSearchOptions
+    setSearchOptions,
+    clearCache
   };
 };

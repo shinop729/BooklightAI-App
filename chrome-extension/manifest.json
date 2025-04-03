@@ -24,7 +24,13 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://read.amazon.co.jp/*", "https://read.amazon.com/*", "file:///*"],
+      "matches": [
+        "https://read.amazon.co.jp/*",
+        "https://read.amazon.com/*",
+        "https://read.amazon.co.jp/notebook*",
+        "https://read.amazon.com/notebook*",
+        "file:///*"
+      ],
       "js": ["src/content.js"]
     },
     {

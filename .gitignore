@@ -23,3 +23,13 @@ csv_chroma_db/
 Thumbs.db
 .env
 .env.backup
+
+# Vector DB
+api/api/user_data/vector_db/
+user_data/vector_db/
+
+# Database files
+*.db
+
+# Backup files
+*.bak

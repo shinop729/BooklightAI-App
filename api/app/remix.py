@@ -36,6 +36,12 @@ class RemixService:
         """
         self.db = db
         self.user_id = user_id
+        # --- デバッグログ追加 ---
+        if not settings.OPENAI_API_KEY:
+            logger.warning("RemixService Init: OPENAI_API_KEY is empty before client initialization.")
+        else:
+            logger.debug(f"RemixService Init: Initializing OpenAI client with key starting with: {settings.OPENAI_API_KEY[:5]}...")
+        # --- デバッグログ追加ここまで ---
         self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
     
     async def generate_random_theme(self) -> str:
@@ -70,7 +76,8 @@ class RemixService:
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
-                max_tokens=50
+                max_tokens=50,
+                timeout=30.0 # タイムアウトを追加
             )
             
             theme = response.choices[0].message.content.strip()
@@ -258,7 +265,8 @@ class RemixService:
             response = self.openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
+                temperature=0.7,
+                timeout=30.0 # タイムアウトを追加
             )
             
             result_text = response.choices[0].message.content.strip()
@@ -274,9 +282,17 @@ class RemixService:
                     title = line.replace("title:", "", 1).strip()
             
             return {"theme": theme, "title": title}
-        
+        except openai.APIConnectionError as e:
+            logger.error(f"テーマ生成エラー (接続): {e}")
+            return {"theme": "", "title": ""}
+        except openai.RateLimitError as e:
+            logger.error(f"テーマ生成エラー (レート制限): {e}")
+            return {"theme": "", "title": ""}
+        except openai.APIStatusError as e:
+            logger.error(f"テーマ生成エラー (APIステータス): {e.status_code} - {e.response}")
+            return {"theme": "", "title": ""}
         except Exception as e:
-            logger.error(f"テーマ生成エラー: {e}")
+            logger.error(f"テーマ生成中の予期せぬエラー: {type(e).__name__} - {e}", exc_info=True)
             return {"theme": "", "title": ""}
     
     async def generate_remix_essay(self, highlights: List[Dict[str, Any]], theme: str, title: str) -> str:
@@ -327,14 +343,23 @@ class RemixService:
                 model="gpt-4-turbo",  # より高品質なエッセイのためにGPT-4を使用
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=2000
+                max_tokens=2000,
+                timeout=60.0 # エッセイ生成は時間がかかる可能性があるため長めに設定
             )
             
             essay = response.choices[0].message.content.strip()
             return essay
-        
+        except openai.APIConnectionError as e:
+            logger.error(f"エッセイ生成エラー (接続): {e}")
+            return ""
+        except openai.RateLimitError as e:
+            logger.error(f"エッセイ生成エラー (レート制限): {e}")
+            return ""
+        except openai.APIStatusError as e:
+            logger.error(f"エッセイ生成エラー (APIステータス): {e.status_code} - {e.response}")
+            return ""
         except Exception as e:
-            logger.error(f"エッセイ生成エラー: {e}")
+            logger.error(f"エッセイ生成中の予期せぬエラー: {type(e).__name__} - {e}", exc_info=True)
             return ""
     
     async def generate_remix(self, highlight_count: int = 5) -> Dict[str, Any]:
@@ -465,7 +490,8 @@ class RemixService:
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=100
+                max_tokens=100,
+                timeout=30.0 # タイムアウトを追加
             )
             
             # レスポンスからハイライト番号を抽出

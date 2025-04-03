@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearch } from '../hooks/useSearch';
 import { useSearchSuggest } from '../hooks/useSearchSuggest';
 import { useSearchHistory } from '../hooks/useSearchHistory';
@@ -11,10 +11,8 @@ const Search = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // シンプル化のため、フィルターオプションを非表示
   const [showFilters, setShowFilters] = useState(false);
-  const [hybridAlpha, setHybridAlpha] = useState(0.7); // ベクトル検索の重み（0-1）
-  const [bookWeight, setBookWeight] = useState(0.3); // 書籍情報の重み（0-1）
-  const [useExpanded, setUseExpanded] = useState(true); // 拡張検索の使用
   
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
@@ -27,7 +25,8 @@ const Search = () => {
     removeKeyword, 
     clearKeywords, 
     search,
-    setSearchOptions
+    setSearchOptions,
+    clearCache
   } = useSearch();
   
   // 検索サジェストフック
@@ -41,15 +40,6 @@ const Search = () => {
     deleteFromHistory, 
     clearHistory 
   } = useSearchHistory();
-  
-  // 検索オプションの更新
-  useEffect(() => {
-    setSearchOptions({
-      hybrid_alpha: hybridAlpha,
-      book_weight: bookWeight,
-      use_expanded: useExpanded
-    });
-  }, [hybridAlpha, bookWeight, useExpanded]);
   
   // クリック外れ検出用のイベントリスナー
   useEffect(() => {
@@ -77,20 +67,45 @@ const Search = () => {
     };
   }, []);
 
+  // キャッシュクリア
+  const handleClearCache = useCallback(() => {
+    clearCache();
+    // 通知表示
+    const notification = document.createElement('div');
+    notification.className = 'fixed top-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in-out';
+    notification.textContent = 'キャッシュをクリアしました';
+    document.body.appendChild(notification);
+    
+    // 3秒後に通知を削除
+    setTimeout(() => {
+      notification.classList.add('animate-fade-out');
+      setTimeout(() => {
+        document.body.removeChild(notification);
+      }, 500);
+    }, 3000);
+  }, [clearCache]);
+
   // 検索実行
   const handleSearch = async () => {
     if (inputValue.trim()) {
       const keyword = inputValue.trim();
-      addKeyword(keyword);
+      console.log('検索キーワード追加:', keyword);
+      
+      // 入力フィールドをクリアしてサジェストを閉じる
       setInputValue('');
       setShowSuggestions(false);
       
-      // 検索履歴に追加
-      if (keywords.length > 0) {
-        addToHistory([...keywords, keyword]);
-      } else {
-        addToHistory([keyword]);
-      }
+      // キーワードを追加（これによりuseEffectが発火して検索が実行される）
+      addKeyword(keyword);
+      
+      // 検索履歴に追加（非同期で行い、UIブロッキングを防止）
+      setTimeout(() => {
+        if (keywords.length > 0) {
+          addToHistory([...keywords, keyword]);
+        } else {
+          addToHistory([keyword]);
+        }
+      }, 10);
     }
   };
 
@@ -174,6 +189,7 @@ const Search = () => {
             >
               <span className="material-icons">history</span>
             </button>
+            {/* フィルターボタンは残すが、機能は無効化 */}
             <button
               onClick={() => setShowFilters(!showFilters)}
               className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg transition-colors"
@@ -290,63 +306,14 @@ const Search = () => {
             </div>
           )}
           
-          {/* 検索フィルター */}
+          {/* 検索フィルター（シンプル化のため非表示） */}
           {showFilters && (
             <div className="bg-gray-800 rounded-lg p-4 mt-2 shadow-lg">
               <h3 className="text-white font-medium mb-3">検索オプション</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-gray-400 mb-1 text-sm">
-                    ベクトル検索の重み: {hybridAlpha.toFixed(1)}
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={hybridAlpha}
-                    onChange={(e) => setHybridAlpha(parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500">
-                    <span>キーワード重視</span>
-                    <span>意味重視</span>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-gray-400 mb-1 text-sm">
-                    書籍情報の重み: {bookWeight.toFixed(1)}
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={bookWeight}
-                    onChange={(e) => setBookWeight(parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500">
-                    <span>内容重視</span>
-                    <span>書籍重視</span>
-                  </div>
-                </div>
-                
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="useExpanded"
-                    checked={useExpanded}
-                    onChange={(e) => setUseExpanded(e.target.checked)}
-                    className="mr-2"
-                  />
-                  <label htmlFor="useExpanded" className="text-gray-400 text-sm">
-                    拡張検索を使用（類似語も検索）
-                  </label>
-                </div>
-              </div>
+              <p className="text-gray-400 text-sm">
+                現在、検索はキーワードマッチングとFTS（全文検索）を組み合わせた標準モードで動作しています。
+                検索オプションはシンプル化のため無効化されています。
+              </p>
             </div>
           )}
         </div>
@@ -381,33 +348,68 @@ const Search = () => {
           <h2 className="text-xl font-semibold text-white">
             {keywords.length > 0 ? '検索結果' : 'キーワードを入力してください'}
           </h2>
-          {results.length > 0 && (
-            <span className="text-gray-400">{results.length}件のハイライトが見つかりました</span>
-          )}
+          <div className="flex items-center gap-3">
+            {results.length > 0 && (
+              <span className="text-gray-400">{results.length}件のハイライトが見つかりました</span>
+            )}
+            <button
+              onClick={handleClearCache}
+              className="text-gray-400 hover:text-white text-sm flex items-center"
+              title="検索キャッシュをクリア"
+            >
+              <span className="material-icons text-sm mr-1">cached</span>
+              キャッシュクリア
+            </button>
+          </div>
         </div>
         
-        {/* ローディング表示 */}
+        {/* ローディング表示（スケルトンローディング） */}
         {isLoading ? (
-          <div className="flex justify-center items-center h-40">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+          <div className="space-y-4">
+            {[...Array(5)].map((_, index) => (
+              <div key={index} className="animate-pulse">
+                <div className="h-32 bg-gray-700 rounded-lg mb-2 relative overflow-hidden">
+                  {/* 波紋エフェクト */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-gray-600 to-transparent opacity-20" 
+                       style={{
+                         animation: `shimmer ${1 + index * 0.2}s infinite linear`,
+                         backgroundSize: '200% 100%',
+                         backgroundPosition: '100% 0'
+                       }}></div>
+                  {/* コンテンツの模擬表示 */}
+                  <div className="p-4">
+                    <div className="h-3 bg-gray-600 rounded w-3/4 mb-2"></div>
+                    <div className="h-3 bg-gray-600 rounded w-1/2 mb-2"></div>
+                    <div className="h-3 bg-gray-600 rounded w-5/6"></div>
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <div>
+                    <div className="h-4 bg-gray-700 rounded w-40 mb-2"></div>
+                    <div className="h-3 bg-gray-700 rounded w-24"></div>
+                  </div>
+                  <div className="h-6 w-16 bg-gray-700 rounded-full"></div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="space-y-4">
-{results.length > 0 ? (
-  results.map((result: any, index: number) => (
-    <div key={index} className="relative">
-      <HighlightCard
-        content={result.content}
-        title={result.book_title}
-        author={result.book_author}
-        index={index}
-      />
-      {/* スコア表示（オプション） */}
-      <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
-        スコア: {result.score.toFixed(2)}
-      </div>
-    </div>
-  ))
+            {results.length > 0 ? (
+              results.map((result: any, index: number) => (
+                <div key={index} className="relative">
+                  <HighlightCard
+                    content={result.content}
+                    title={result.book_title}
+                    author={result.book_author}
+                    index={index}
+                  />
+                  {/* スコア表示（オプション） */}
+                  <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
+                    スコア: {result.score.toFixed(2)}
+                  </div>
+                </div>
+              ))
             ) : keywords.length > 0 ? (
               <div className="text-center text-gray-400 py-8">
                 <p>検索結果が見つかりませんでした。</p>

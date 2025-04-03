@@ -1,7 +1,7 @@
 import { useAuth } from '../context/AuthContext';
 import { useRandomHighlight } from '../hooks/useRandomHighlight';
 import { useUserStats } from '../hooks/useUserStats';
-import { useCrossPoint } from '../hooks/useCrossPoint';
+import { useCrossPoint } from '../context/CrossPointContext';
 import HighlightCard from '../components/common/HighlightCard';
 import CrossPointCard from '../components/feature/CrossPointCard';
 import { formatDate } from '../utils/textUtils';

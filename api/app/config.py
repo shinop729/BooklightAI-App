@@ -1,6 +1,20 @@
 import os
+import logging
+from dotenv import load_dotenv # dotenvをインポート
+from pathlib import Path      # pathlibをインポート
 from typing import List, Optional
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger("booklight-api") # ロガー取得を先に移動
+
+# --- .env ファイルの明示的な読み込み処理を追加 ---
+# config.py の場所からプロジェクトルートのパスを取得 (api/app/ -> api/ -> project_root/)
+env_path = Path(__file__).resolve().parents[2] / '.env'
+logger.debug(f"Attempting to load .env file from: {env_path}")
+# .env ファイルを明示的に読み込む (存在しなくてもエラーにはしない)
+loaded = load_dotenv(dotenv_path=env_path, override=True) # override=True で既存の環境変数を上書き
+logger.debug(f".env file loaded: {loaded} (Path exists: {env_path.exists()})") # 読み込めたかどうかのログも追加
+# --- 追加ここまで ---
 
 class Settings(BaseSettings):
     APP_NAME: str = "Booklight AI API"
@@ -60,6 +74,15 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     
     class Config:
-        env_file = ".env"
+        # env_file = ".env" # load_dotenv で読み込むのでコメントアウト
+        pass
 
 settings = Settings()
+
+# --- デバッグログ追加 ---
+if not settings.OPENAI_API_KEY:
+    logger.warning("Config: OPENAI_API_KEY is empty or not set.")
+else:
+    # キーの一部だけをログに出力（セキュリティのため）
+    logger.debug(f"Config: OPENAI_API_KEY loaded successfully (starts with: {settings.OPENAI_API_KEY[:5]}...).")
+# --- デバッグログ追加ここまで ---

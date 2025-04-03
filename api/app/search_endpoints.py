@@ -10,6 +10,9 @@ from database.base import get_db
 import database.models as models
 from app.rag import RAGService
 from app.auth import get_current_active_user, User
+from app.cache import get_cache, set_cache, invalidate_cache
+from app.metrics import measure_time
+import logging
 
 # ロギング設定
 logger = logging.getLogger("booklight-api")
@@ -46,71 +49,149 @@ class SearchSuggestResponse(BaseModel):
 
 # 検索エンドポイント
 @router.post("/search", response_model=SearchResponse)
+@measure_time("search")
 async def search(
     request: SearchRequest,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    ハイライト検索エンドポイント
+    ハイブリッド検索エンドポイント（キーワード + FTS）
     
     キーワードに基づいてハイライトを検索します
+    直接キーワードマッチングとFTS検索を組み合わせて高速化
+    キャッシュ機能を追加
     """
     try:
-        logger.info(f"検索リクエスト: {request}")
+        # パラメータのバリデーション
+        if not request.keywords or len(request.keywords) == 0:
+            return {"success": True, "data": {"results": [], "total": 0}}
         
-        # RAGサービスの初期化
-        rag_service = RAGService(db, current_user.id)
+        logger.info(f"検索リクエスト: {request.keywords}")
         
-        # 検索クエリの作成
-        query = " ".join(request.keywords)
+        # クエリキャッシュキーの生成
+        cache_key = f"search_{current_user.id}_{'-'.join(request.keywords)}_{request.limit}"
         
-        # 関連ハイライトの取得
-        results = rag_service.get_relevant_highlights(
-            query=query,
-            k=request.limit or 30
-        )
+        # キャッシュから結果を取得
+        cached_results = await get_cache(cache_key)
+        if cached_results:
+            logger.info(f"キャッシュから検索結果を取得: {len(cached_results)} 件")
+            return {
+                "success": True,
+                "data": {
+                    "results": cached_results,
+                    "total": len(cached_results)
+                }
+            }
         
-        # 結果の整形
-        formatted_results = []
-        for result in results:
-            # 書籍情報の取得
-            book_id = result.get("book_id")
-            if book_id:
-                book = db.query(models.Book).filter(models.Book.id == int(book_id)).first()
-                book_title = book.title if book else "不明な書籍"
-                book_author = book.author if book else "不明な著者"
-            else:
-                book_title = "不明な書籍"
-                book_author = "不明な著者"
+        logger.info("キャッシュミス、検索を実行します")
+        
+        # 検索結果を格納するリスト
+        results = []
+        seen_highlight_ids = set()
+        
+        # 1. キーワード検索（LIKE演算子を使用）
+        for keyword in request.keywords:
+            keyword_results = db.query(models.Highlight).filter(
+                models.Highlight.user_id == current_user.id,
+                models.Highlight.content.ilike(f"%{keyword}%")
+            ).limit(50).all()
             
-            # ハイライト情報の取得
-            highlight = db.query(models.Highlight).filter(
-                models.Highlight.content == result.get("content"),
-                models.Highlight.user_id == current_user.id
-            ).first()
-            
-            highlight_id = highlight.id if highlight else 0
-            
-            formatted_results.append({
-                "highlight_id": highlight_id,
-                "content": result.get("content", ""),
-                "book_id": int(book_id) if book_id else 0,
-                "book_title": book_title,
-                "book_author": book_author,
-                "score": result.get("score", 0.0)
-            })
+            for highlight in keyword_results:
+                if highlight.id in seen_highlight_ids:
+                    continue
+                
+                # 書籍情報の取得
+                book = db.query(models.Book).filter(
+                    models.Book.id == highlight.book_id
+                ).first()
+                
+                if book:
+                    results.append({
+                        "highlight_id": highlight.id,
+                        "content": highlight.content,
+                        "book_id": highlight.book_id,
+                        "book_title": book.title,
+                        "book_author": book.author,
+                        "score": 1.0  # 直接マッチは高いスコア
+                    })
+                    seen_highlight_ids.add(highlight.id)
+        
+        # 2. FTS検索（十分な結果がない場合）
+        if len(results) < 20:
+            try:
+                # PostgreSQLの全文検索用のクエリを構築
+                tsquery_parts = []
+                for kw in request.keywords:
+                    # 特殊文字をエスケープ
+                    kw = kw.replace("'", "''")
+                    tsquery_parts.append(f"to_tsquery('english', '{kw}:*')")
+                
+                tsquery = " || ".join(tsquery_parts)
+                
+                # PostgreSQLの全文検索を使用
+                query = """
+                SELECT h.id, h.content, h.book_id, b.title, b.author, 
+                       ts_rank(h.search_vector, query) as rank
+                FROM highlights h
+                JOIN books b ON h.book_id = b.id,
+                     to_tsquery('english', :query) as query
+                WHERE h.user_id = :user_id
+                AND h.search_vector @@ query
+                ORDER BY rank DESC
+                LIMIT 30
+                """
+                
+                # キーワードをPostgreSQLのtsquery形式に変換
+                tsquery_str = " | ".join([f"{kw}:*" for kw in request.keywords])
+                
+                fts_results = db.execute(
+                    query, 
+                    {"user_id": current_user.id, "query": tsquery_str}
+                ).fetchall()
+                
+                # 結果の追加（重複を除外）
+                for row in fts_results:
+                    highlight_id = row[0]
+                    if highlight_id in seen_highlight_ids:
+                        continue
+                    
+                    results.append({
+                        "highlight_id": highlight_id,
+                        "content": row[1],
+                        "book_id": row[2],
+                        "book_title": row[3],
+                        "book_author": row[4],
+                        "score": 0.8  # FTS検索は中程度のスコア
+                    })
+                    seen_highlight_ids.add(highlight_id)
+            except Exception as fts_error:
+                # FTS検索に失敗した場合はログに記録して続行
+                logger.error(f"FTS検索エラー: {fts_error}")
+                logger.error(f"FTSテーブルが存在しない可能性があります。マイグレーションを実行してください。")
+        
+        # 結果をスコアでソート
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        # 結果数を制限
+        limit = request.limit or 30
+        results = results[:limit]
+        
+        # 結果をキャッシュに保存（15分間）
+        await set_cache(cache_key, results, ttl=60*15)
         
         return {
             "success": True,
             "data": {
-                "results": formatted_results,
-                "total": len(formatted_results)
+                "results": results,
+                "total": len(results)
             }
         }
     
     except Exception as e:
         logger.error(f"検索エラー: {e}")
+        import traceback
+        logger.error(f"詳細エラー: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"検索処理中にエラーが発生しました: {str(e)}")
 
 # 検索履歴エンドポイント

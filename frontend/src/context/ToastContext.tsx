@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
 import Toast, { ToastProps, ToastType } from '../components/common/Toast';
 
 interface ToastContextProps {
@@ -15,16 +15,16 @@ const ToastContext = createContext<ToastContextProps | undefined>(undefined);
 export const ToastProvider = ({ children }: { children: ReactNode }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  // 新しいトーストを表示
-  const showToast = (type: ToastType, message: string, duration = 3000) => {
+  // 新しいトーストを表示（useCallbackでメモ化）
+  const showToast = useCallback((type: ToastType, message: string, duration = 3000) => {
     const id = Date.now().toString();
     setToasts((prev) => [...prev, { id, type, message, duration }]);
-  };
+  }, []);
 
-  // 特定のトーストを非表示
-  const hideToast = (id: string) => {
+  // 特定のトーストを非表示（useCallbackでメモ化）
+  const hideToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+  }, []);
 
   return (
     <ToastContext.Provider value={{ showToast, hideToast }}>

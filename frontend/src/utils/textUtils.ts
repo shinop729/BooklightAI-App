@@ -80,3 +80,31 @@ export const formatDate = (dateString: string): string => {
     return dateString;
   }
 };
+
+/**
+ * デバウンス関数
+ * 指定した時間内に連続して呼び出された場合、最後の呼び出しのみを実行する
+ * 
+ * @param func 実行する関数
+ * @param wait 待機時間（ミリ秒）
+ * @returns デバウンスされた関数
+ */
+export const debounce = <T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): ((...args: Parameters<T>) => void) => {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  
+  return function(this: any, ...args: Parameters<T>) {
+    const context = this;
+    
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
+    
+    timeout = setTimeout(() => {
+      func.apply(context, args);
+      timeout = null;
+    }, wait);
+  };
+};

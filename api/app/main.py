@@ -16,6 +16,7 @@ from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from starlette.middleware.sessions import SessionMiddleware
+from dotenv import load_dotenv # dotenv をインポート
 
 from app.config import settings
 from app.exceptions import setup_exception_handlers, AuthenticationError, ConfigurationError
@@ -34,13 +35,31 @@ from database.base import engine, Base
 # Sentryの初期化
 set_user_context = init_sentry(settings)
 
+# .env ファイルを読み込む
+load_dotenv()
+
 # ロギング設定
+# settings.LOG_LEVEL ではなく、os.getenv を直接使用
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+# getattrで取得し、無効な場合はINFOにフォールバック
+log_level = getattr(logging, log_level_str, logging.INFO)
+
+# basicConfigでルートロガーを設定 (force=True を追加)
 logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL),
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[logging.StreamHandler()],
+    force=True # 設定を強制的に適用
 )
+
+# アプリケーションロガーを取得
 logger = logging.getLogger("booklight-api")
+# ルートロガーの設定が伝播するはずだが、念のためレベルを設定することも可能
+# logger.setLevel(log_level)
+
+# 設定されたログレベルとテストメッセージを出力
+logger.info(f"ログレベルを '{log_level_str}' (数値: {log_level}) に設定しました。")
+logger.debug("これは main.py からの DEBUG レベルのテストメッセージです。") # 設定確認用
 
 # Heroku環境を検出した場合の追加設定
 if os.getenv("DYNO"):
@@ -691,3 +710,46 @@ app.include_router(user_router)
 # 検索関連のエンドポイントをインクルード
 from app.search_endpoints import router as search_router
 app.include_router(search_router)
+
+# チャット関連のエンドポイントをインクルード
+from app.chat_endpoints import router as chat_router
+app.include_router(chat_router)
+
+# パフォーマンスモニタリングエンドポイント
+from app.metrics import get_performance_stats, clear_performance_history
+
+@app.get("/api/admin/performance")
+async def get_performance_metrics(
+    category: Optional[str] = None,
+    period: Optional[str] = None,
+    authorized: bool = Depends(verify_debug_access)
+):
+    """
+    パフォーマンス統計情報を取得するエンドポイント
+    
+    Args:
+        category: カテゴリ名（'search', 'chat', 'cross_point', 'remix'）
+        period: 期間（'hour', 'day', 'week', 'all'）
+    """
+    stats = get_performance_stats(category, period)
+    return {
+        "success": True,
+        "data": stats
+    }
+
+@app.post("/api/admin/performance/clear")
+async def clear_performance_data(
+    category: Optional[str] = None,
+    authorized: bool = Depends(verify_debug_access)
+):
+    """
+    パフォーマンス履歴をクリアするエンドポイント
+    
+    Args:
+        category: クリアするカテゴリ名（指定しない場合は全カテゴリ）
+    """
+    clear_performance_history(category)
+    return {
+        "success": True,
+        "message": f"パフォーマンス履歴をクリアしました: {category or '全カテゴリ'}"
+    }

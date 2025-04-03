@@ -201,6 +201,18 @@ async def generate_streaming_response(rag_service, query, book_title, session_id
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield f"data: [DONE]\n\n"
 
+@router.get("/api/debug/search/{keyword}")
+async def debug_search(
+    keyword: str,
+    limit: int = 10,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """デバッグ用キーワード検索エンドポイント"""
+    rag_service = RAGService(db, current_user.id)
+    results = await rag_service.debug_keyword_search(keyword, limit)
+    return results
+
 @router.get("/api/chat/sessions")
 async def get_chat_sessions(
     current_user: User = Depends(get_current_active_user),
