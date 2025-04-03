@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const connectionStatus = document.getElementById('connectionStatus');
   const errorDetailsElement = document.getElementById('errorDetails'); // エラー詳細用
   const toastElement = document.getElementById('toast'); // トースト用
+  const lastSyncTimeElement = document.getElementById('lastSyncTime'); // 最終同期日時表示用
 
   // --- 一括取得用UI要素 ---
   const collectAllBtn = document.getElementById('collectAllBtn');
@@ -22,8 +23,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
   let isCollecting = false; // 収集中のフラグ (単一・一括共通)
 
-  // 認証状態の確認
-  function checkAuthStatus() {
+  // 認証状態と最終同期日時の確認
+  function checkAuthAndSyncStatus() {
     chrome.runtime.sendMessage({ action: 'checkAuth' }, function(response) {
       if (chrome.runtime.lastError) {
         console.error("認証チェックエラー:", chrome.runtime.lastError.message);
@@ -34,9 +35,64 @@ document.addEventListener('DOMContentLoaded', function() {
       if (response && response.success && response.isAuthenticated) {
         setUIState(true, false); // ログイン済み、収集中でない状態
         userName.textContent = response.userName || 'ユーザー';
+        // ログイン済みの場合、現在の書籍の同期ステータスを取得
+        displayCurrentBookSyncStatus();
       } else {
         setUIState(false, false); // 未ログイン状態
+        if (lastSyncTimeElement) lastSyncTimeElement.textContent = 'N/A'; // 未ログイン時は表示しない
       }
+    });
+  }
+
+  // 現在表示している書籍の最終同期日時を表示する関数
+  function displayCurrentBookSyncStatus() {
+    if (!lastSyncTimeElement) return; // 要素がなければ何もしない
+
+    lastSyncTimeElement.textContent = '取得中...'; // 一時的に表示
+
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (chrome.runtime.lastError || !tabs || tabs.length === 0) {
+        lastSyncTimeElement.textContent = '取得失敗';
+        return;
+      }
+      const tabId = tabs[0].id;
+
+      // コンテンツスクリプトに書籍情報を要求 (タイトルと著者を取得するため)
+      chrome.tabs.sendMessage(tabId, { action: 'extractCurrentBookData' }, function(bookResponse) {
+        if (chrome.runtime.lastError || !bookResponse || !bookResponse.success || !bookResponse.data) {
+          lastSyncTimeElement.textContent = '情報取得失敗';
+          return;
+        }
+
+        const { book_title, author } = bookResponse.data;
+
+        if (!book_title || !author) {
+          lastSyncTimeElement.textContent = '書籍情報不足';
+          return;
+        }
+
+        // バックグラウンドに同期ステータスを要求
+        chrome.runtime.sendMessage(
+          { action: 'getSyncStatus', bookTitle: book_title, bookAuthor: author },
+          function(syncResponse) {
+            if (chrome.runtime.lastError || !syncResponse || !syncResponse.success) {
+              lastSyncTimeElement.textContent = 'ステータス取得失敗';
+              return;
+            }
+
+            if (syncResponse.data && syncResponse.data.lastSyncTimestamp) {
+              try {
+                const date = new Date(syncResponse.data.lastSyncTimestamp);
+                lastSyncTimeElement.textContent = date.toLocaleString('ja-JP');
+              } catch (e) {
+                lastSyncTimeElement.textContent = '日付形式エラー';
+              }
+            } else {
+              lastSyncTimeElement.textContent = '未同期';
+            }
+          }
+        );
+      });
     });
   }
 
@@ -62,7 +118,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // 初期状態の確認
-  checkAuthStatus();
+  checkAuthAndSyncStatus(); // 認証と同期ステータスをチェック
 
   // ネットワーク状態の確認
   updateConnectionStatus();
@@ -81,7 +137,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
       if (response && response.success) {
-        checkAuthStatus(); // UI状態更新を含む
+        checkAuthAndSyncStatus(); // UI状態更新を含む (修正)
         showStatus('success', 'ログインしました');
       } else {
         showStatus('error', response ? response.message : 'ログインに失敗しました');
@@ -100,7 +156,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
       if (response && response.success) {
-        checkAuthStatus(); // UI状態更新を含む
+        checkAuthAndSyncStatus(); // UI状態更新を含む (修正)
         showStatus('info', 'ログアウトしました');
       } else {
         showStatus('error', 'ログアウトに失敗しました');
@@ -108,81 +164,45 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
-  // 表示中のハイライト収集ボタン
+  // 表示中の書籍を同期ボタン
   collectBtn.addEventListener('click', function() {
-    console.log("Booklight AI: Collect button clicked"); // Log
-    setUIState(true, true); // 収集開始状態
-    showStatus('info', '表示中のハイライトを収集中...');
-    errorDetailsElement.style.display = 'none'; // エラー詳細を隠す
+    console.log("Booklight AI: Sync Current Book button clicked");
+    setUIState(true, true); // 同期開始状態
+    showStatus('info', '現在の書籍を同期中...');
+    errorDetailsElement.style.display = 'none';
+    if (lastSyncTimeElement) lastSyncTimeElement.textContent = '同期中...';
 
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      if (chrome.runtime.lastError || !tabs || tabs.length === 0) {
-          showDetailedError('現在のタブ情報の取得に失敗しました: ' + (chrome.runtime.lastError?.message || 'タブが見つかりません'));
-          setUIState(true, false); // 収集終了状態
-          return;
-      }
-      const currentTab = tabs[0];
-
-      if (!currentTab.url || (!currentTab.url.includes('read.amazon') && !currentTab.url.includes('test-page.html') && !currentTab.url.includes('file://'))) {
-        showStatus('error', 'Kindle Web Readerページを開いてください');
-        setUIState(true, false); // 収集終了状態
-        return;
-      }
-
-      // コンテンツスクリプトにメッセージを送信
-      console.log("Booklight AI: Sending 'collectHighlights' message to content script"); // Log
-      chrome.tabs.sendMessage(currentTab.id, { action: 'collectHighlights' }, function(response) {
-        console.log("Booklight AI: 'collectHighlights' response from content script", response); // Log
-        if (chrome.runtime.lastError) {
-          console.error("Booklight AI: Error sending message to content script", chrome.runtime.lastError); // Log error
-          showDetailedError('ページとの通信に失敗しました: ' + chrome.runtime.lastError.message);
-          setUIState(true, false);
-          return;
-        }
-        if (!response) {
-          showDetailedError('ページからの応答がありません。ページが正しく読み込まれているか確認してください。');
-          setUIState(true, false);
-          return;
-        }
-        if (!response.success) {
-          showDetailedError(response.message || 'ハイライトの収集に失敗しました');
-          setUIState(true, false);
-          return;
-        }
-        if (!response.data || !response.data.highlights || response.data.highlights.length === 0) {
-            showStatus('info', '表示中のページに収集対象のハイライトが見つかりませんでした。');
-            setUIState(true, false);
-            return;
-        }
-
-        showStatus('info', 'ハイライトをサーバーに送信中...');
-
-        // バックグラウンドスクリプトにハイライトを送信
-        console.log("Booklight AI: Sending 'sendHighlights' message to background script"); // Log
-        chrome.runtime.sendMessage(
-          { action: 'sendHighlights', highlights: response.data.highlights },
-          function(apiResponse) {
-            console.log("Booklight AI: 'sendHighlights' response from background script", apiResponse); // Log
-            if (chrome.runtime.lastError) {
-              console.error("Booklight AI: Error receiving response from background script", chrome.runtime.lastError); // Log error
-              showDetailedError('バックグラウンドスクリプトとの通信に失敗しました: ' + chrome.runtime.lastError.message);
-            } else if (!apiResponse) {
-              console.error("Booklight AI: No response from background script for sendHighlights"); // Log error
-              showDetailedError('バックグラウンドスクリプトからの応答がありません');
-            } else if (apiResponse.success) {
-              if (apiResponse.offline) {
-                showStatus('warning', apiResponse.message || 'オフラインモードでハイライトを保存しました');
-              } else {
-                const totalMessage = apiResponse.total_highlights ? `（合計: ${apiResponse.total_highlights}件）` : '';
-                showStatus('success', `${apiResponse.message || 'ハイライトを保存しました'} ${totalMessage}`);
-              }
-            } else {
-              showDetailedError(apiResponse.message || 'APIとの通信に失敗しました');
+    // バックグラウンドに同期開始を依頼
+    // バックグラウンド側でタブ特定、コンテンツスクリプトへの抽出依頼、差分同期を行う
+    chrome.runtime.sendMessage({ action: 'syncCurrentBook' }, function(response) {
+      console.log("Booklight AI: 'syncCurrentBook' response from background script", response);
+      if (chrome.runtime.lastError) {
+        console.error("Booklight AI: Error receiving response from background script", chrome.runtime.lastError);
+        showDetailedError('バックグラウンドとの通信に失敗しました: ' + chrome.runtime.lastError.message);
+      } else if (!response) {
+        console.error("Booklight AI: No response from background script for syncCurrentBook");
+        showDetailedError('バックグラウンドスクリプトからの応答がありません');
+      } else if (response.success) {
+        let message = response.message || '同期が完了しました';
+        if (response.newHighlightsCount !== undefined) {
+            message = `${response.newHighlightsCount}件の新規ハイライトを同期しました。`;
+            if (response.isNewBook) {
+                message = `新規書籍として同期しました (${response.newHighlightsCount}件のハイライト)`;
             }
-            setUIState(true, false); // 収集終了状態
-          }
-        );
-      });
+        }
+        if (response.offline) {
+          showStatus('warning', message + ' (オフライン)');
+        } else {
+          showStatus('success', message);
+        }
+        // 同期成功後、最終同期日時を再表示
+        displayCurrentBookSyncStatus();
+      } else {
+        showDetailedError(response.message || '同期に失敗しました');
+        // 失敗した場合も同期ステータスを更新してみる（エラー表示になるはず）
+        displayCurrentBookSyncStatus();
+      }
+      setUIState(true, false); // 同期終了状態
     });
   });
 
@@ -404,4 +424,111 @@ document.addEventListener('DOMContentLoaded', function() {
       showStatus('warning', 'オフラインです。一部機能が制限される可能性があります。');
     }
   }
+
+  // --- CSVダウンロード機能 ---
+  const downloadCsvBtn = document.getElementById('downloadCsvBtn');
+
+  if (downloadCsvBtn) {
+    downloadCsvBtn.addEventListener('click', async function() {
+      console.log("Booklight AI: Download CSV button clicked");
+      showStatus('info', 'CSVデータを取得中...');
+      downloadCsvBtn.disabled = true; // ボタンを無効化
+
+      try {
+        // アクティブなタブを取得
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tabs || tabs.length === 0) {
+          throw new Error('アクティブなタブが見つかりません');
+        }
+        const tabId = tabs[0].id;
+
+        // コンテンツスクリプトにデータ抽出を依頼
+        const response = await chrome.tabs.sendMessage(tabId, { action: 'extractCurrentBookData' });
+
+        if (!response || !response.success) {
+          throw new Error(response?.message || 'ハイライトデータの抽出に失敗しました');
+        }
+
+        const bookData = response.data;
+        if (!bookData || !bookData.highlights) {
+            throw new Error('抽出データが不正です');
+        }
+
+        // CSVデータを生成
+        const csvData = convertToCSV(bookData);
+
+        // ファイル名を生成 (ファイル名に使えない文字を置換)
+        const safeTitle = bookData.book_title.replace(/[\\/:*?"<>|]/g, '_');
+        const filename = `${safeTitle}.csv`;
+
+        // CSVファイルをダウンロード
+        downloadCSV(csvData, filename);
+
+        showStatus('success', 'CSVファイルをダウンロードしました');
+
+      } catch (error) {
+        console.error('Booklight AI: CSVダウンロードエラー', error);
+        showDetailedError(`CSVダウンロードエラー: ${error.message}`);
+      } finally {
+        downloadCsvBtn.disabled = false; // ボタンを有効化
+        // 必要に応じてステータス表示をクリア
+        // setTimeout(() => showStatus('info', ''), 3000);
+      }
+    });
+  }
+
+  // データをCSV形式に変換する関数
+  function convertToCSV(bookData) {
+    const { book_title, author, cover_image_url, highlights } = bookData;
+    const header = ['Book Title', 'Author', 'Cover Image URL', 'Highlight Content', 'Location'];
+
+    // エスケープ処理関数
+    const escapeCSV = (field) => {
+      if (field === null || field === undefined) {
+        return '';
+      }
+      const stringField = String(field);
+      // ダブルクォート、カンマ、改行が含まれる場合はダブルクォートで囲む
+      if (stringField.includes('"') || stringField.includes(',') || stringField.includes('\n') || stringField.includes('\r')) {
+        // ダブルクォートは二重にする
+        const escapedField = stringField.replace(/"/g, '""');
+        return `"${escapedField}"`;
+      }
+      return stringField;
+    };
+
+    // ヘッダー行
+    const csvRows = [header.map(escapeCSV).join(',')];
+
+    // データ行
+    highlights.forEach(h => {
+      const row = [
+        book_title,
+        author,
+        cover_image_url,
+        h.content,
+        h.location
+      ];
+      csvRows.push(row.map(escapeCSV).join(','));
+    });
+
+    // BOM付きUTF-8で返す
+    return '\ufeff' + csvRows.join('\n');
+  }
+
+  // CSVデータをファイルとしてダウンロードする関数
+  function downloadCSV(csvData, filename) {
+    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url); // 不要になったURLを解放
+  }
+  // --- CSVダウンロード機能ここまで ---
+
 });

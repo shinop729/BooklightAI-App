@@ -41,6 +41,17 @@
       margin: 0;
       flex-grow: 1;
     }
+    .sync-status {
+      font-size: 11px;
+      color: #666;
+      margin-top: 5px;
+      margin-bottom: 10px;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #eee;
+      margin: 15px 0;
+    }
     .status-indicator {
       display: flex;
       align-items: center;
@@ -145,9 +156,13 @@
   </div>
 
   <div id="highlightsSection" style="display:none;" class="highlights-section">
-    <p>Kindleページを開いてハイライトを収集できます</p>
-    <button id="collectBtn">表示中のハイライトを収集</button>
-    <button id="collectAllBtn">全書籍のハイライトを取得</button> {/* 追加 */}
+    <h3>書籍の同期</h3>
+    <button id="collectBtn" class="btn btn-primary">現在の書籍を同期</button>
+    <button id="downloadCsvBtn" class="btn btn-secondary" style="margin-top: 5px;">CSVダウンロード</button> <!-- 追加 -->
+    <p class="sync-status">最終同期: <span id="lastSyncTime">確認中...</span></p>
+    <hr>
+    <h3>一括同期</h3>
+    <button id="collectAllBtn">全書籍のハイライトを取得</button> {/* ボタンテキストは変更しないでおきます */}
     <div id="status" class="status"></div>
     <div id="errorDetails" class="error-details" style="display:none;"></div>
 
