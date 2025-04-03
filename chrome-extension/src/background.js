@@ -1,7 +1,7 @@
 // APIエンドポイント設定
 // const API_BASE_URL = 'http://localhost:8000'; // 開発環境
 const API_BASE_URL = 'https://booklight-ai.com'; // 本番環境
-
+const SYNC_API_ENDPOINT = `${API_BASE_URL}/api/sync-highlights`; // 差分同期用エンドポイント
 
 // 開発モードの設定
 const DEV_MODE = true; // 開発環境ではtrueに設定
@@ -18,6 +18,352 @@ try {
   }
 } catch (e) {
   console.log('Booklight AI: ダミーデータのインポートに失敗しました（本番環境では正常）', e);
+}
+
+/**
+ * 文字列からシンプルなハッシュ値を生成する関数 (簡易版)
+ * @param {string} str - ハッシュ化する文字列
+ * @returns {string} - ハッシュ値
+ */
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  // 衝突を避けるため、より安全なハッシュ関数 (例: SHA-256) のライブラリを使うのが望ましい
+  // ここでは簡易的な実装とする
+  return hash.toString(16); // 16進数文字列に変換
+}
+
+/**
+ * ハイライトオブジェクトから一意なID（ハッシュ）を生成する
+ * @param {object} highlight - ハイライトオブジェクト ({ content: string, location: string })
+ * @returns {string} - ハイライトのハッシュID
+ */
+function generateHighlightId(highlight) {
+  if (!highlight || typeof highlight.content !== 'string' || typeof highlight.location !== 'string') {
+    console.warn('Booklight AI: 無効なハイライトデータのためIDを生成できません', highlight);
+    return null;
+  }
+  // 内容と位置情報を組み合わせてハッシュ化
+  const key = `${highlight.content.trim()}-${highlight.location.trim()}`;
+  return simpleHash(key);
+}
+
+/**
+ * 書籍データからストレージキーを生成する
+ * @param {string} title - 書籍タイトル
+ * @param {string} author - 著者名
+ * @returns {string} - ストレージキー
+ */
+function generateBookStorageKey(title, author) {
+  const cleanTitle = title?.trim() || '不明な書籍';
+  const cleanAuthor = author?.trim() || '不明な著者';
+  // キーが長くなりすぎないように注意しつつ、一意性を保つ
+  return `sync-${simpleHash(cleanTitle)}-${simpleHash(cleanAuthor)}`;
+}
+
+/**
+ * 指定された書籍の同期ステータスをローカルストレージから取得する
+ * @param {string} storageKey - 書籍のストレージキー
+ * @returns {Promise<object|null>} - 同期ステータス ({ lastSyncTimestamp: string, syncedHighlightIds: Set<string> }) または null
+ */
+async function getBookSyncStatus(storageKey) {
+  try {
+    const data = await chrome.storage.local.get(storageKey);
+    if (data && data[storageKey]) {
+      // Setオブジェクトに変換して返す
+      const status = data[storageKey];
+      status.syncedHighlightIds = new Set(status.syncedHighlightIds || []);
+      return status;
+    }
+    return null; // データがない場合はnull
+  } catch (error) {
+    console.error(`Booklight AI: ストレージからの同期ステータス取得エラー (${storageKey})`, error);
+    return null;
+  }
+}
+
+/**
+ * 書籍の同期ステータスをローカルストレージに保存する
+ * @param {string} storageKey - 書籍のストレージキー
+ * @param {string} lastSyncTimestamp - 最終同期タイムスタンプ (ISO文字列)
+ * @param {Set<string>} syncedHighlightIds - 同期済みハイライトIDのSet
+ * @returns {Promise<boolean>} - 保存成功時はtrue
+ */
+async function saveBookSyncStatus(storageKey, lastSyncTimestamp, syncedHighlightIds) {
+  try {
+    const dataToStore = {
+      [storageKey]: {
+        lastSyncTimestamp: lastSyncTimestamp,
+        // Setを配列に変換して保存
+        syncedHighlightIds: Array.from(syncedHighlightIds)
+      }
+    };
+    await chrome.storage.local.set(dataToStore);
+    return true;
+  } catch (error) {
+    console.error(`Booklight AI: ストレージへの同期ステータス保存エラー (${storageKey})`, error);
+    return false;
+  }
+}
+
+/**
+ * 書籍データを同期する（差分検出とAPI送信）
+ * @param {object} bookData - コンテンツスクリプトから抽出された書籍データ
+ *                           { book_title, author, cover_image_url, highlights: [{ content, location }] }
+ * @returns {Promise<object>} - 同期結果 { success, message, offline?, newHighlightsCount?, isNewBook? }
+ */
+async function syncBookData(bookData) {
+  const { book_title, author, cover_image_url, highlights } = bookData;
+
+  if (!book_title || !author) {
+      console.warn('Booklight AI: 書籍タイトルまたは著者が不明なため同期をスキップします', bookData);
+      return { success: false, message: '書籍タイトルまたは著者が不明です' };
+  }
+
+  const storageKey = generateBookStorageKey(book_title, author);
+  console.log(`Booklight AI: 書籍「${book_title}」の同期を開始します (Key: ${storageKey})`);
+
+  try {
+    // 1. 現在のハイライトIDリストを作成
+    const currentHighlightIds = new Map(); // Map<highlightId, highlightObject>
+    const validHighlights = highlights.filter(h => h.content); // 有効なハイライトのみ対象
+    validHighlights.forEach(h => {
+      const id = generateHighlightId(h);
+      if (id) {
+        currentHighlightIds.set(id, h); // MapにIDと元のハイライトオブジェクトを保存
+      }
+    });
+
+    // 2. ローカルストレージから前回の同期ステータスを取得
+    const previousSyncStatus = await getBookSyncStatus(storageKey);
+    const syncedHighlightIds = previousSyncStatus?.syncedHighlightIds || new Set();
+    const isNewBook = !previousSyncStatus; // 前回同期ステータスがなければ新規書籍
+
+    console.log(`Booklight AI: 前回同期済みハイライト数: ${syncedHighlightIds.size}, 今回のハイライト数: ${currentHighlightIds.size}, 新規書籍: ${isNewBook}`);
+
+    // 3. 新規ハイライトを特定
+    const newHighlights = [];
+    for (const [id, highlight] of currentHighlightIds.entries()) {
+      if (!syncedHighlightIds.has(id)) {
+        newHighlights.push(highlight); // 同期済みIDセットに含まれていないものを新規とする
+      }
+    }
+
+    console.log(`Booklight AI: 新規ハイライト数: ${newHighlights.length}`);
+
+    // 4. 送信するペイロードを作成
+    let payload = null;
+    if (isNewBook || newHighlights.length > 0) {
+      payload = {
+        book: {
+          title: book_title,
+          author: author,
+          cover_image_url: cover_image_url,
+          is_new: isNewBook // 新規書籍かどうかを示すフラグ
+        },
+        highlights: newHighlights // 新規ハイライトのみ送信
+      };
+    } else {
+      // 新規ハイライトがない場合は同期不要
+      console.log(`Booklight AI: 書籍「${book_title}」に新規ハイライトはありません。同期をスキップします。`);
+      // ローカルの最終同期日時だけ更新しても良いかもしれない
+      await saveBookSyncStatus(storageKey, new Date().toISOString(), syncedHighlightIds);
+      return { success: true, message: '新規ハイライトはありませんでした', newHighlightsCount: 0, isNewBook: false };
+    }
+
+    // 5. APIに差分データを送信
+    console.log('Booklight AI: APIに差分データを送信します', payload);
+
+    // 開発モードのダミーレスポンス
+    if (DEV_MODE && dummyData) {
+      console.log('Booklight AI: 開発モードで差分同期API送信をシミュレートします');
+      // ダミーレスポンスを返す
+      const currentTimestamp = new Date().toISOString();
+      const updatedSyncedIds = new Set([...syncedHighlightIds, ...newHighlights.map(generateHighlightId).filter(id => id)]);
+      await saveBookSyncStatus(storageKey, currentTimestamp, updatedSyncedIds);
+      return {
+          success: true,
+          message: `${newHighlights.length}件の新規ハイライトを同期しました (シミュレート)`,
+          newHighlightsCount: newHighlights.length,
+          isNewBook: isNewBook
+      };
+    }
+
+    // トークン検証と取得
+    const isTokenValid = await validateToken();
+    if (!isTokenValid) {
+      // 再認証を試みるか、エラーを返す
+      console.log('Booklight AI: 認証トークンが無効です。再認証が必要です。');
+      // ここで authenticateWithGoogle() を呼ぶか、エラーを返すか選択
+      return { success: false, message: '認証が必要です。再度ログインしてください。' };
+    }
+    const authData = await chrome.storage.local.get(['authToken']);
+    if (!authData.authToken) {
+      return { success: false, message: 'ログインが必要です' };
+    }
+
+    // 新しい差分同期APIエンドポイントにリクエスト
+    const response = await fetch(SYNC_API_ENDPOINT, { // 新しいエンドポイントを使用
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authData.authToken}`
+      },
+      body: JSON.stringify(payload) // 作成したペイロードを送信
+    });
+
+    // 6. レスポンス処理とローカルステータス更新
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Booklight AI: 差分同期APIエラー', response.status, errorText);
+      if (response.status === 401) {
+        await chrome.storage.local.remove(['authToken', 'authTime']);
+        return { success: false, message: '認証の有効期限が切れました。再度ログインしてください。' };
+      }
+      // オフライン判定とキャッシュ処理 (差分データのみキャッシュ)
+      if (!navigator.onLine || error.name === 'TypeError') {
+         cacheSyncPayload(storageKey, payload); // 差分ペイロードをキャッシュ
+         return {
+           success: true, // ローカル比較は完了
+           offline: true,
+           message: 'オフラインのため、差分データをキャッシュしました。オンライン時に同期します。',
+           newHighlightsCount: newHighlights.length,
+           isNewBook: isNewBook
+         };
+      }
+      return { success: false, message: `APIエラー: ${response.status} ${errorText}` };
+    }
+
+    const data = await response.json();
+    console.log('Booklight AI: 差分同期API応答', data);
+
+    // 同期成功：ローカルの同期ステータスを更新
+    const currentTimestamp = new Date().toISOString();
+    // 今回同期したハイライトIDも既存のIDセットに追加
+    const updatedSyncedIds = new Set([...syncedHighlightIds, ...newHighlights.map(generateHighlightId).filter(id => id)]);
+    await saveBookSyncStatus(storageKey, currentTimestamp, updatedSyncedIds);
+
+    return {
+      success: true,
+      message: data.message || `${newHighlights.length}件の新規ハイライトを同期しました`,
+      newHighlightsCount: newHighlights.length,
+      isNewBook: isNewBook
+    };
+
+  } catch (error) {
+    console.error(`Booklight AI: 書籍「${book_title}」の同期処理中にエラーが発生しました`, error);
+    // オフライン判定とキャッシュ処理
+     if (!navigator.onLine || error.name === 'TypeError') {
+        // ペイロードが生成されていればキャッシュ
+        if (payload) {
+            cacheSyncPayload(storageKey, payload);
+            return {
+                success: true, // ローカル比較は完了
+                offline: true,
+                message: 'オフラインのため、差分データをキャッシュしました。オンライン時に同期します。',
+                newHighlightsCount: payload.highlights.length,
+                isNewBook: payload.book.is_new
+            };
+        } else {
+             return { success: false, offline: true, message: `オフラインエラー: ${error.message}` };
+        }
+     }
+    return { success: false, message: `同期エラー: ${error.message}` };
+  }
+}
+
+// --- オフラインキャッシュ処理の修正 ---
+let pendingSyncPayloads = {}; // API送信用キャッシュ { storageKey: payload }
+
+// 差分ペイロードをキャッシュに追加
+async function cacheSyncPayload(storageKey, payload) {
+  pendingSyncPayloads[storageKey] = payload;
+  await chrome.storage.local.set({ 'pendingSyncPayloads': pendingSyncPayloads });
+  console.log(`Booklight AI: 差分同期ペイロードをキャッシュに保存しました (Key: ${storageKey})`, Object.keys(pendingSyncPayloads).length);
+}
+
+// キャッシュされた差分ペイロードを送信
+async function sendCachedSyncPayloads() {
+  if (Object.keys(pendingSyncPayloads).length === 0 || isOffline()) {
+    return;
+  }
+
+  console.log('Booklight AI: キャッシュされた差分同期ペイロードを送信します', Object.keys(pendingSyncPayloads).length);
+
+  const keysToSend = Object.keys(pendingSyncPayloads);
+  let allSuccess = true;
+
+  for (const storageKey of keysToSend) {
+    const payload = pendingSyncPayloads[storageKey];
+    console.log(`Booklight AI: キャッシュされたペイロードを送信中 (Key: ${storageKey})`);
+
+    // API送信のみを行うヘルパー関数 (syncBookDataからAPI送信部分を流用)
+    const result = await sendSyncPayloadToAPIOnly(payload); // 仮の関数名
+
+    if (result.success) {
+      // 送信成功したらキャッシュから削除
+      delete pendingSyncPayloads[storageKey];
+      console.log(`Booklight AI: キャッシュされたペイロードの送信成功 (Key: ${storageKey})`);
+
+      // ローカルの同期ステータスも更新する必要がある
+      const currentTimestamp = new Date().toISOString();
+      const previousStatus = await getBookSyncStatus(storageKey);
+      const syncedIds = previousStatus?.syncedHighlightIds || new Set();
+      const newHighlightIds = payload.highlights.map(generateHighlightId).filter(id => id);
+      const updatedSyncedIds = new Set([...syncedIds, ...newHighlightIds]);
+      await saveBookSyncStatus(storageKey, currentTimestamp, updatedSyncedIds);
+
+    } else {
+      console.error(`Booklight AI: キャッシュされたペイロードの送信に失敗 (Key: ${storageKey})`, result.message);
+      allSuccess = false;
+      // 失敗した場合はキャッシュに残しておく（リトライのため）
+      // 永続的なエラーの場合は削除するロジックも必要かもしれない
+    }
+  }
+
+  // キャッシュの状態をストレージに保存
+  await chrome.storage.local.set({ 'pendingSyncPayloads': pendingSyncPayloads });
+
+  if (allSuccess && keysToSend.length > 0) {
+      console.log('Booklight AI: キャッシュされたペイロードの送信が完了しました');
+  } else if (!allSuccess) {
+      console.warn('Booklight AI: 一部のキャッシュされたペイロードの送信に失敗しました');
+  }
+}
+
+// 差分ペイロードをAPIに送信するヘルパー関数
+async function sendSyncPayloadToAPIOnly(payload) {
+    try {
+        console.log('Booklight AI: APIに差分ペイロードのみ送信します', payload);
+        const isTokenValid = await validateToken();
+        if (!isTokenValid) return { success: false, message: '認証トークンが無効です' };
+        const authData = await chrome.storage.local.get(['authToken']);
+        if (!authData.authToken) return { success: false, message: 'ログインが必要です' };
+
+        const response = await fetch(SYNC_API_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authData.authToken}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          if (response.status === 401) await chrome.storage.local.remove(['authToken', 'authTime']);
+          throw new Error(`APIエラー: ${response.status} ${errorText}`);
+        }
+        const data = await response.json();
+        return { success: true, message: data.message };
+     } catch (error) {
+        console.error('Booklight AI: 差分ペイロードAPI送信エラー', error);
+        return { success: false, message: `API送信エラー: ${error.message}` };
+    }
 }
 
 // 一括取得を開始する関数
@@ -242,717 +588,205 @@ async function validateToken() {
     // トークンの有効期限をチェック（25分）
     const now = Date.now();
     const tokenAge = now - (authData.authTime || 0);
-    if (tokenAge > 25 * 60 * 1000) {
-      console.log('Booklight AI: 認証トークンの有効期限が近いため、リフレッシュを試みます');
-      return await refreshToken();
+    const tokenExpiryTime = 25 * 60 * 1000; // 25分をミリ秒で表現
+
+    // トークンが有効期限内かチェック
+    if (tokenAge < tokenExpiryTime) {
+      return true; // 有効期限内
     }
 
-    // APIを使用してトークンの有効性を確認（オプション）
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/user`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authData.authToken}`
-        }
-      });
-
-      if (!response.ok) {
-        console.log('Booklight AI: 認証トークンが無効です', response.status);
-        // 401エラーの場合はリフレッシュを試みる
-        if (response.status === 401) {
-          return await refreshToken();
-        }
-        return false;
-      }
-
-      // トークンが有効な場合、有効期限を更新
-      await chrome.storage.local.set({ 'authTime': Date.now() });
-      return true;
-    } catch (error) {
-      console.error('Booklight AI: トークン検証中にエラーが発生しました', error);
-      // ネットワークエラーの場合は、トークンの有効期限だけで判断
-      return tokenAge <= 30 * 60 * 1000;
-    }
+    // 有効期限切れの場合、リフレッシュを試みる
+    console.log('Booklight AI: トークンの有効期限が切れています。リフレッシュを試みます。');
+    const refreshSuccess = await refreshToken();
+    return refreshSuccess;
   } catch (error) {
     console.error('Booklight AI: トークン検証エラー', error);
     return false;
   }
 }
 
-// ハイライトをローカルストレージに保存し、APIにも送信する関数
-async function processAndStoreHighlights(highlights) {
+// オフライン状態を確認する関数
+function isOffline() {
+  return !navigator.onLine;
+}
+
+// メッセージリスナーの設定
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Booklight AI: メッセージを受信しました', request.action);
+  
+  // 認証状態の確認
+  if (request.action === 'checkAuth') {
+    checkAuthStatus().then(sendResponse);
+    return true; // 非同期レスポンスを示す
+  }
+  
+  // ログイン処理
+  if (request.action === 'login') {
+    authenticateWithGoogle().then(sendResponse);
+    return true;
+  }
+  
+  // ログアウト処理
+  if (request.action === 'logout') {
+    logoutUser().then(sendResponse);
+    return true;
+  }
+  
+  // 現在の書籍を同期
+  if (request.action === 'syncCurrentBook') {
+    syncCurrentBookHighlights().then(sendResponse);
+    return true;
+  }
+  
+  // 一括取得開始
+  if (request.action === 'collectAllHighlights') {
+    startCollectAllHighlights().then(sendResponse);
+    return true;
+  }
+  
+  // 一括取得キャンセル
+  if (request.action === 'cancelCollectAll') {
+    cancelCollectAllHighlights().then(sendResponse);
+    return true;
+  }
+  
+  // 書籍の同期ステータスを取得
+  if (request.action === 'getSyncStatus') {
+    getSyncStatus(request.bookTitle, request.bookAuthor).then(sendResponse);
+    return true;
+  }
+});
+
+// 書籍の同期ステータスを取得する関数
+async function getSyncStatus(bookTitle, bookAuthor) {
   try {
-    console.log('Booklight AI: ハイライトを処理・保存します', highlights);
-
-    // --- ローカルストレージへの保存処理 ---
-    const highlightsByBook = {};
-    // 書籍ごとにハイライトをグループ化
-    highlights.forEach(h => {
-      // book_title が存在しない、または空の場合のフォールバック
-      const title = h.book_title || '不明な書籍';
-      const author = h.author || '不明な著者';
-      const bookKey = `book-${title}-${author}`; // 書籍ごとの一意なキー
-      if (!highlightsByBook[bookKey]) {
-        highlightsByBook[bookKey] = {
-          title: title,
-          author: author,
-          cover_image_url: h.cover_image_url, // カバー画像URLも保存
-          highlights: []
-        };
-      }
-      // ハイライト情報のみを抽出して追加（重複を避けるため、後で差分更新を実装）
-      highlightsByBook[bookKey].highlights.push({
-          content: h.content,
-          location: h.location
-      });
-    });
-
-    // 各書籍のデータをストレージに保存/更新
-    for (const bookKey in highlightsByBook) {
-        const bookData = highlightsByBook[bookKey];
-        // 現在のストレージからデータを取得 (差分更新のため - Step 6で実装)
-        // const existingData = await chrome.storage.local.get(bookKey);
-        // const mergedHighlights = mergeHighlights(existingData[bookKey]?.highlights || [], bookData.highlights);
-
-        // 現時点では単純に上書き保存
-        const dataToStore = {
-            [bookKey]: {
-                title: bookData.title,
-                author: bookData.author,
-                cover_image_url: bookData.cover_image_url,
-                highlights: bookData.highlights, // ここは差分更新後のハイライトを入れる (Step 6)
-                lastUpdated: new Date().toISOString()
-            }
-        };
-        await chrome.storage.local.set(dataToStore);
-        console.log(`Booklight AI: 書籍「${bookData.title}」のハイライトをローカルに保存しました`);
-    }
-    // --- ローカルストレージへの保存処理ここまで ---
-
-    // --- APIへの送信処理 (既存のロジック) ---
-    console.log('Booklight AI: APIにハイライトを送信します', highlights); // 送信するデータは元の形式のまま
-
-    // 開発モードでダミーレスポンスを返す
-    if (DEV_MODE && dummyData) {
-      console.log('Booklight AI: 開発モードでダミーレスポンスを使用します');
-      // ローカル保存成功のメッセージを返すように変更
-      const dummyResponse = dummyData.simulateApiResponse(highlights);
-      return {
-          success: true,
-          message: `${highlights.length}件のハイライトをローカルに保存し、API送信をシミュレートしました`,
-          total_highlights: dummyResponse.total_highlights // APIからの合計件数はそのまま返す
+    console.log(`Booklight AI: 書籍「${bookTitle}」の同期ステータスを取得します`);
+    
+    if (!bookTitle || !bookAuthor) {
+      return { 
+        success: false, 
+        message: '書籍タイトルまたは著者が指定されていません' 
       };
     }
-
-    // トークンの有効性を確認
-    const isTokenValid = await validateToken();
-    if (!isTokenValid) {
-      console.log('Booklight AI: 認証トークンが無効なため、再認証を行います');
-      // 再認証
-      const authResult = await authenticateWithGoogle();
-      if (!authResult.success) {
-        return { success: false, message: '認証に失敗しました。再度ログインしてください。' };
-      }
-    }
-
-    // 認証トークンの取得
-    const authData = await chrome.storage.local.get(['authToken']);
-    if (!authData.authToken) {
-      console.error('Booklight AI: 認証トークンがありません');
-      return { success: false, message: 'ログインが必要です' };
-    }
-
-    // APIリクエスト
-    const response = await fetch(`${API_BASE_URL}/api/highlights`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authData.authToken}`
-      },
-      body: JSON.stringify({ highlights: highlights })
-    });
-
-    // レスポンスの処理
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Booklight AI: APIエラー', response.status, errorText);
-
-      // 認証エラーの場合
-      if (response.status === 401) {
-        // 認証トークンをクリアして再認証を促す
-        await chrome.storage.local.remove(['authToken', 'authTime']);
-        return {
-          success: false,
-          message: '認証の有効期限が切れました。再度ログインしてください。'
-        };
-      }
-
+    
+    // ストレージキーを生成
+    const storageKey = generateBookStorageKey(bookTitle, bookAuthor);
+    
+    // 同期ステータスを取得
+    const syncStatus = await getBookSyncStatus(storageKey);
+    
+    if (syncStatus) {
       return {
-        success: false,
-        message: `APIエラー: ${response.status} ${response.statusText}`
+        success: true,
+        data: {
+          lastSyncTimestamp: syncStatus.lastSyncTimestamp,
+          syncedHighlightsCount: syncStatus.syncedHighlightIds.size
+        }
+      };
+    } else {
+      return {
+        success: true,
+        data: null, // 同期履歴なし
+        message: '同期履歴がありません'
       };
     }
-
-    const data = await response.json();
-    console.log('Booklight AI: API応答', data);
-
-    return {
-      success: true,
-      message: data.message || `${highlights.length}件のハイライトを保存しました`,
-      total_highlights: data.total_highlights
-    };
   } catch (error) {
-    console.error('Booklight AI: ハイライト処理・保存・送信中にエラーが発生しました', error);
-
-    // オフライン判定
-    if (!navigator.onLine || error.name === 'TypeError') {
-      // オフラインモードでキャッシュに保存
-      // ローカル保存は試みているはずなので、キャッシュはAPI送信用
-      cacheHighlightsForApi(highlights); // API送信用キャッシュ関数に変更
-      return {
-        success: true, // ローカル保存は成功している可能性がある
-        offline: true,
-        message: 'オフラインのため、ハイライトをローカルに保存しました。オンライン時にサーバーへ同期します。'
-      };
-    }
-
+    console.error('Booklight AI: 同期ステータス取得エラー', error);
     return {
       success: false,
-      message: `通信エラー: ${error.message}`
+      message: `同期ステータス取得エラー: ${error.message}`
     };
   }
 }
 
-// オフラインモード用のキャッシュ
-let pendingApiHighlights = []; // API送信用キャッシュ
-
-// オフラインモードの確認 (Service Workerではnavigator.onLineが使えないため、常にオンラインと仮定するが、念のため残す)
-function isOffline() {
-  return typeof navigator !== 'undefined' && !navigator.onLine;
-}
-
-// API送信用にハイライトをキャッシュに追加
-function cacheHighlightsForApi(highlights) {
-  pendingApiHighlights = pendingApiHighlights.concat(highlights);
-  chrome.storage.local.set({ 'pendingApiHighlights': pendingApiHighlights });
-  console.log('Booklight AI: API送信用ハイライトをキャッシュに保存しました', pendingApiHighlights.length);
-}
-
-// キャッシュされたAPI送信用ハイライトを送信
-async function sendCachedApiHighlights() {
-  if (pendingApiHighlights.length === 0 || isOffline()) { // オンライン状態もチェック
-    return;
-  }
-
-  console.log('Booklight AI: キャッシュされたAPI送信用ハイライトを送信します', pendingApiHighlights.length);
-
-  // API送信のみを行うヘルパー関数 (sendHighlightsToAPIからAPI送信部分を抜き出すか、引数で制御)
-  const result = await sendHighlightsToAPIOnly(pendingApiHighlights); // 仮の関数名
-
-  if (result.success) {
-    pendingApiHighlights = [];
-    chrome.storage.local.remove('pendingApiHighlights');
-    console.log('Booklight AI: キャッシュされたハイライトの送信に成功しました');
-  } else {
-    console.error('Booklight AI: キャッシュされたハイライトの送信に失敗しました', result.message);
-  }
-}
-
-// API送信のみを行うヘルパー関数 (sendHighlightsToAPIからAPI送信部分を抽出)
-async function sendHighlightsToAPIOnly(highlights) {
-    try {
-        console.log('Booklight AI: APIにハイライトのみ送信します', highlights);
-         // トークンの有効性を確認
-        const isTokenValid = await validateToken();
-        if (!isTokenValid) {
-          return { success: false, message: '認証トークンが無効です' };
-        }
-         // 認証トークンの取得
-        const authData = await chrome.storage.local.get(['authToken']);
-        if (!authData.authToken) {
-          return { success: false, message: 'ログインが必要です' };
-        }
-         // APIリクエスト
-        const response = await fetch(`${API_BASE_URL}/api/highlights`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authData.authToken}`
-          },
-          body: JSON.stringify({ highlights: highlights })
-        });
-         if (!response.ok) {
-          const errorText = await response.text();
-          if (response.status === 401) {
-            await chrome.storage.local.remove(['authToken', 'authTime']);
-          }
-          throw new Error(`APIエラー: ${response.status} ${errorText}`);
-        }
-         const data = await response.json();
-        return { success: true, message: data.message, total_highlights: data.total_highlights };
-     } catch (error) {
-        console.error('Booklight AI: API送信エラー', error);
-        return { success: false, message: `API送信エラー: ${error.message}` };
-    }
-}
-
-
-// 定期的にAPI送信用キャッシュを確認して送信を試みる
-self.setInterval(() => {
-  console.log('Booklight AI: API送信用キャッシュ確認');
-  sendCachedApiHighlights();
-}, 60000); // 1分ごとに確認
-
-// 拡張機能のインストール/更新時の処理
-chrome.runtime.onInstalled.addListener(function(details) {
-  console.log('Booklight AI: 拡張機能がインストール/更新されました', details.reason);
-
-  // API送信用キャッシュの復元
-  chrome.storage.local.get(['pendingApiHighlights'], function(data) {
-    if (data.pendingApiHighlights) {
-      pendingApiHighlights = data.pendingApiHighlights;
-      console.log('Booklight AI: API送信用キャッシュを復元しました', pendingApiHighlights.length);
-      // オンラインなら送信試行
-      sendCachedApiHighlights();
-    }
-  });
-});
-
-// --- 一括取得機能 ---
-let isCollectingAll = false; // 一括取得中フラグ
-let bookQueue = []; // 処理対象の書籍情報 {title, url}
-let allCollectedData = {}; // 全書籍の収集結果 { bookTitle: { url, highlights: [...] } }
-let currentCollectionTabId = null; // 一括取得に使用するタブID
-let progressCallback = null; // 進捗通知用コールバック (popup.jsへ)
-let originalTabUrl = null; // 収集開始時のタブURL
-
-// 進捗を通知する関数
-function notifyProgress(processed, total, message = '') {
-  if (progressCallback) {
-    try {
-      progressCallback({
-        action: 'updateProgress',
-        processed: processed,
-        total: total,
-        message: message
-      });
-    } catch (e) {
-      console.warn("Booklight AI: 進捗通知コールバックの呼び出しに失敗しました", e);
-      progressCallback = null; // コールバックが無効になった場合はクリア
-    }
-  }
-  // ポップアップにもメッセージを送信 (ポップアップが開いている場合)
-  chrome.runtime.sendMessage({
-    action: 'updateProgress',
-    processed: processed,
-    total: total,
-    message: message
-  }).catch(e => { /* ポップアップが開いていない場合のエラーは無視 */ });
-}
-
-// --- 一括取得処理の最適化 ---
-
-// 進捗とエラーを記録・通知する関数
-function logAndNotify(message, processed, total) {
-  console.log(`Booklight AI: ${message}`);
-  
-  // 進捗通知
-  notifyProgress(processed, total, message);
-  
-  // エラーログ（必要に応じて）
-  if (message.includes('エラー') || message.includes('失敗')) {
-    console.error(`Booklight AI: ${message}`);
-  }
-}
-
-// 収集完了時の処理
-async function finishCollection() {
-  console.log('Booklight AI: 一括取得完了');
-  isCollectingAll = false;
-  
-  const totalCollected = Object.keys(allCollectedData).length;
-  const totalHighlights = Object.values(allCollectedData)
-    .reduce((sum, book) => sum + (book.highlights?.length || 0), 0);
-  
-  notifyProgress(
-    totalCollected, 
-    totalCollected, 
-    `一括取得完了: ${totalCollected}冊の書籍から${totalHighlights}件のハイライトを取得しました`
-  );
-  
-  // 元のページに戻る
-  if (currentCollectionTabId && originalTabUrl) {
-    try {
-      await chrome.tabs.update(currentCollectionTabId, { url: originalTabUrl });
-      console.log('Booklight AI: 元のページに戻りました:', originalTabUrl);
-    } catch (error) {
-      console.error('Booklight AI: 元のページへの復元に失敗しました', error);
-    }
-  }
-  
-  // 収集したデータの処理
-  if (totalHighlights > 0) {
-    const allHighlights = [];
-    for (const bookTitle in allCollectedData) {
-      const book = allCollectedData[bookTitle];
-      // 書籍情報をハイライトに付加
-      book.highlights.forEach(highlight => {
-        allHighlights.push({
-          book_title: bookTitle,
-          author: book.author,
-          cover_image_url: book.cover_image_url,
-          content: highlight.content,
-          location: highlight.location
-        });
-      });
-    }
-    
-    // バックグラウンドスクリプトに送信
-    try {
-      console.log(`Booklight AI: 収集した ${allHighlights.length} 件のハイライトを処理します`);
-      const result = await processAndStoreHighlights(allHighlights);
-      if (result.success) {
-        notifyProgress(
-          totalCollected, 
-          totalCollected, 
-          `保存完了: ${result.message || `${allHighlights.length}件のハイライトを保存しました`}`
-        );
-      } else {
-        notifyProgress(
-          totalCollected, 
-          totalCollected, 
-          `保存エラー: ${result.message || '不明なエラー'}`
-        );
-      }
-    } catch (error) {
-      notifyProgress(
-        totalCollected, 
-        totalCollected, 
-        `保存エラー: ${error.message}`
-      );
-    }
-  }
-  
-  // クリーンアップ
-  currentCollectionTabId = null;
-  originalTabUrl = null;
-  allCollectedData = {};
-}
-
-// ページ遷移と読み込み待機を行う関数
-async function navigateToBookPage(book, tabId) {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-      reject(new Error(`ページ読み込みタイムアウト: ${book.title}`));
-    }, 30000); // 30秒タイムアウト
-    
-    const tabUpdateListener = (updatedTabId, changeInfo, tab) => {
-      // URLの部分一致で確認（クエリパラメータが変わる場合に対応）
-      const isTargetUrl = tab.url && (
-        tab.url === book.url || 
-        (book.bookId && tab.url.includes(book.bookId))
-      );
-      
-      if (updatedTabId === tabId && changeInfo.status === 'complete' && isTargetUrl) {
-        chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-        clearTimeout(timeoutId);
-        
-        // ページ読み込み後、コンテンツスクリプトの準備を待つ
-        waitForContentScript(tabId)
-          .then(() => resolve())
-          .catch(error => reject(error));
-      }
-    };
-    
-    chrome.tabs.onUpdated.addListener(tabUpdateListener);
-    
-    // ページ遷移
-    chrome.tabs.update(tabId, { url: book.url, active: false })
-      .catch(error => {
-        chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-        clearTimeout(timeoutId);
-        reject(error);
-      });
-  });
-}
-
-// ハイライト取得を実行する関数
-async function extractBookHighlights(tabId) {
+// 認証状態を確認する関数
+async function checkAuthStatus() {
   try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        // content.jsのextractCurrentBookData関数を呼び出す
-        if (typeof extractCurrentBookData === 'function') {
-          return extractCurrentBookData();
-        } else {
-          return { 
-            success: false, 
-            message: 'extractCurrentBookData関数が見つかりません' 
-          };
-        }
-      }
-    });
+    const authData = await chrome.storage.local.get(['authToken', 'userId', 'userName', 'userEmail', 'authTime']);
     
-    return results[0]?.result || { 
-      success: false, 
-      message: 'スクリプト実行結果が取得できませんでした' 
-    };
-  } catch (error) {
-    return { 
-      success: false, 
-      message: `スクリプト実行エラー: ${error.message}` 
-    };
-  }
-}
-
-// キューから次の書籍を処理する関数（改良版）
-async function processBookQueue() {
-  if (!isCollectingAll || bookQueue.length === 0) {
-    // 収集完了処理
-    await finishCollection();
-    return;
-  }
-
-  const book = bookQueue.shift();
-  const totalBooks = Object.keys(allCollectedData).length + bookQueue.length + 1;
-  const processedCount = Object.keys(allCollectedData).length;
-
-  try {
-    // URLチェックと進捗通知
-    if (!book.url) {
-      logAndNotify(`スキップ: ${book.title} (URL不明)`, processedCount, totalBooks);
-      setTimeout(processBookQueue, 500); // 次の書籍へ（少し間隔を空ける）
-      return;
-    }
-
-    logAndNotify(`処理中: ${book.title}`, processedCount, totalBooks);
-
-    // ページ遷移と読み込み待機
-    try {
-      await navigateToBookPage(book, currentCollectionTabId);
-      console.log(`Booklight AI: 「${book.title}」のページ読み込みと準備完了`);
-    } catch (error) {
-      logAndNotify(`ページ読み込みエラー: ${book.title} - ${error.message}`, processedCount, totalBooks);
-      setTimeout(processBookQueue, 500);
-      return;
-    }
-    
-    // ハイライト取得処理
-    const bookData = await extractBookHighlights(currentCollectionTabId);
-    
-    // 取得結果の処理
-    if (bookData.success && bookData.data) {
-      const title = bookData.data.book_title || book.title;
-      const highlightCount = bookData.data.highlights?.length || 0;
+    if (authData.authToken) {
+      // トークンの有効性を確認
+      const isValid = await validateToken();
       
-      // 収集データに追加
-      allCollectedData[title] = {
-        url: book.url,
-        author: bookData.data.author,
-        cover_image_url: bookData.data.cover_image_url,
-        highlights: bookData.data.highlights || []
-      };
-      
-      logAndNotify(
-        `取得成功: ${title} (${highlightCount}件のハイライト)`, 
-        processedCount + 1, 
-        totalBooks
-      );
-    } else {
-      logAndNotify(
-        `取得失敗: ${book.title} - ${bookData.message || '不明なエラー'}`, 
-        processedCount, 
-        totalBooks
-      );
-    }
-
-    // 次の書籍を処理（少し間隔を空ける）
-    setTimeout(processBookQueue, 1000);
-  } catch (error) {
-    // エラーハンドリング
-    console.error(`Booklight AI: 書籍処理エラー: ${error.message}`, error);
-    logAndNotify(
-      `処理エラー: ${book?.title || '不明な書籍'} - ${error.message}`, 
-      processedCount, 
-      totalBooks
-    );
-    
-    // エラーが発生しても次の書籍を処理
-    setTimeout(processBookQueue, 1000);
-  }
-}
-
-// コンテンツスクリプトの準備を待つ関数
-async function waitForContentScript(tabId) {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error('コンテンツスクリプトの準備タイムアウト'));
-    }, 10000); // 10秒タイムアウト
-    
-    // コンテンツスクリプトの準備確認
-    function checkContentScript() {
-      chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          return typeof extractCurrentBookData === 'function';
-        }
-      }).then(results => {
-        const isReady = results[0]?.result;
-        if (isReady) {
-          clearTimeout(timeoutId);
-          resolve();
-        } else {
-          // まだ準備できていない場合は少し待ってから再試行
-          setTimeout(checkContentScript, 500);
-        }
-      }).catch(error => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
-    }
-    
-    // 確認開始
-    checkContentScript();
-  });
-}
-
-// メッセージリスナー (トップレベルに追加)
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log("Booklight AI: Background received message:", request.action); // Log received action
-
-  // 非同期処理のため true を返す
-  let isAsync = false;
-
-  if (request.action === 'login') {
-    isAsync = true; // 非同期処理を示す
-    authenticateWithGoogle().then(result => {
-      console.log("Booklight AI: Login action result:", result); // Log result
-      sendResponse(result);
-    }).catch(error => {
-      console.error("Booklight AI: Login action error:", error); // Log error
-      sendResponse({ success: false, message: `ログイン処理中にエラー: ${error.message}` });
-    });
-  } else if (request.action === 'logout') {
-    isAsync = true; // 非同期処理を示す
-    // ログアウト処理 (トークン削除など)
-    chrome.storage.local.remove(['authToken', 'userId', 'userEmail', 'userName', 'userPicture', 'authTime'])
-      .then(() => {
-        console.log("Booklight AI: Logout successful"); // Log success
-        sendResponse({ success: true });
-      }).catch(error => {
-        console.error("Booklight AI: Logout error:", error); // Log error
-        sendResponse({ success: false, message: `ログアウト処理中にエラー: ${error.message}` });
-      });
-  } else if (request.action === 'checkAuth') {
-    isAsync = true; // 非同期処理を示す
-    validateToken().then(isValid => {
       if (isValid) {
-        chrome.storage.local.get(['userName', 'userEmail']).then(userData => {
-          console.log("Booklight AI: CheckAuth successful", userData); // Log success
-          sendResponse({ success: true, isAuthenticated: true, userName: userData.userName, userEmail: userData.userEmail });
-        });
+        return {
+          success: true,
+          isAuthenticated: true,
+          userId: authData.userId,
+          userName: authData.userName,
+          userEmail: authData.userEmail
+        };
       } else {
-        console.log("Booklight AI: CheckAuth failed - token invalid"); // Log failure
-        sendResponse({ success: true, isAuthenticated: false });
+        // トークンが無効な場合
+        return {
+          success: true,
+          isAuthenticated: false,
+          message: 'トークンが無効です'
+        };
       }
-    }).catch(error => {
-      console.error("Booklight AI: CheckAuth error:", error); // Log error
-      sendResponse({ success: false, isAuthenticated: false, message: `認証チェックエラー: ${error.message}` });
-    });
-  } else if (request.action === 'sendHighlights') {
-    isAsync = true; // 非同期処理を示す
-    if (request.highlights) {
-      processAndStoreHighlights(request.highlights).then(result => {
-        console.log("Booklight AI: SendHighlights result:", result); // Log result
-        sendResponse(result);
-      }).catch(error => {
-        console.error("Booklight AI: SendHighlights error:", error); // Log error
-        sendResponse({ success: false, message: `ハイライト送信処理エラー: ${error.message}` });
-      });
     } else {
-      console.log("Booklight AI: SendHighlights failed - no highlights provided"); // Log failure
-      sendResponse({ success: false, message: '送信するハイライトがありません' });
+      // トークンがない場合
+      return {
+        success: true,
+        isAuthenticated: false
+      };
     }
-  } else if (request.action === 'collectAllHighlights') {
-    isAsync = true; // 非同期処理を示す
-    console.log("Booklight AI: collectAllHighlights action received");
+  } catch (error) {
+    console.error('Booklight AI: 認証状態確認エラー', error);
+    return {
+      success: false,
+      message: `認証状態確認エラー: ${error.message}`
+    };
+  }
+}
 
-    // アクティブなタブを取得してコンテンツスクリプトに書籍リストを要求
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (chrome.runtime.lastError) {
-            console.error("Booklight AI: Error querying tabs:", chrome.runtime.lastError.message);
-            sendResponse({ success: false, message: `タブの取得エラー: ${chrome.runtime.lastError.message}` });
-            return; // エラー時はここで終了
-        }
-        if (tabs.length === 0) {
-            console.log("Booklight AI: No active tab found.");
-            sendResponse({ success: false, message: 'アクティブなタブが見つかりません。' });
-            return; // タブがない場合はここで終了
-        }
-        const tabId = tabs[0].id;
-        console.log(`Booklight AI: Found active tab ID: ${tabId}`);
+// ユーザーをログアウトする関数
+async function logoutUser() {
+  try {
+    await chrome.storage.local.remove(['authToken', 'userId', 'userName', 'userEmail', 'authTime']);
+    return {
+      success: true,
+      message: 'ログアウトしました'
+    };
+  } catch (error) {
+    console.error('Booklight AI: ログアウトエラー', error);
+    return {
+      success: false,
+      message: `ログアウトエラー: ${error.message}`
+    };
+  }
+}
 
-        // コンテンツスクリプトに getBookLinks メッセージを送信
-        chrome.tabs.sendMessage(tabId, { action: 'getBookLinks' }, (response) => {
-            if (chrome.runtime.lastError) {
-                // コンテンツスクリプトが存在しない、または応答しない場合のエラー
-                console.error("Booklight AI: Error sending getBookLinks message:", chrome.runtime.lastError.message);
-                sendResponse({ success: false, message: `コンテンツスクリプトとの通信エラー: ${chrome.runtime.lastError.message}. Kindleノートブックページを開いているか確認してください。` });
-                return; // エラー時はここで終了
-            }
-
-            if (response && response.success && Array.isArray(response.data)) {
-                console.log(`Booklight AI: Received ${response.data.length} books from content script.`);
-                // 取得した書籍リストで一括取得を開始
-                // startCollectingAllBooks は Promise を返し、内部で初期応答を行う
-                startCollectingAllBooks(response.data, null) // progressCallback は startCollectingAllBooks 内部で設定されるため null を渡す
-                  .then(initialResult => {
-                    // startCollectingAllBooks が返す初期応答 (成功/失敗メッセージ) をポップアップに返す
-                    console.log("Booklight AI: startCollectingAllBooks initial response:", initialResult);
-                    // ★重要: ここで sendResponse を呼ぶと、startCollectingAllBooks 内の初期応答と競合する可能性がある。
-                    // startCollectingAllBooks が初期応答を確実に返す設計なら、ここでは不要。
-                    // ただし、startCollectingAllBooks が失敗した場合のエラー応答は必要。
-                    // → startCollectingAllBooks が初期応答を返すので、ここでは sendResponse しない。
-                    //   エラーは catch で捕捉する。
-                  })
-                  .catch(error => {
-                    console.error("Booklight AI: Error starting collection:", error);
-                    // startCollectingAllBooks 自体の開始エラーをポップアップに返す
-                    sendResponse({ success: false, message: `一括取得開始エラー: ${error.message}` });
-                  });
-                 // startCollectingAllBooks が非同期で開始されるため、
-                 // ここで sendResponse を呼ばずに listener から抜けることで非同期応答を示す。
-                 // ポップアップは startCollectingAllBooks 内からの最初の notifyProgress を待つ。
-            } else {
-                // コンテンツスクリプトからの応答が不正な場合
-                console.error("Booklight AI: Failed to get book links from content script or invalid response:", response);
-                sendResponse({ success: false, message: `書籍リストの取得に失敗しました: ${response?.message || 'コンテンツスクリプトからの応答が不正です。'}` });
-            }
-        });
-    });
-    // return true; // 非同期応答を示すために true を返す (addListener の外側で return isAsync するのでここでは不要)
-
-  } else if (request.action === 'cancelCollectAll') {
-      isCollectingAll = false; // 収集フラグをリセット
-      bookQueue = []; // キューをクリア
-      console.log("Booklight AI: 一括取得がキャンセルされました");
-        // 必要に応じて進行中のタブ操作を停止する処理を追加
-        sendResponse({ success: true, message: '一括取得をキャンセルしました' });
-    } else if (request.action === 'getDummyData') {
-      if (DEV_MODE && dummyData) {
-        console.log("Booklight AI: Sending dummy data to content script");
-        sendResponse({ success: true, data: dummyData }); // ダミーデータを返す
-      } else {
-        console.log("Booklight AI: Not in DEV_MODE or no dummy data available");
-        sendResponse({ success: false, message: 'Dummy data not available' });
-      }
-      // sendResponse を同期的に呼び出す場合は true を返す必要はない
-      // もし dummyData の取得が非同期なら isAsync = true; return true; が必要
+// 現在表示中の書籍のハイライトを同期する関数
+async function syncCurrentBookHighlights() {
+  try {
+    // 現在のタブを取得
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tabs || tabs.length === 0) {
+      return { success: false, message: 'アクティブなタブが見つかりません' };
     }
-    // 他のアクションもここに追加...
-
-  // 非同期応答の場合は true を返す必要がある
-  return isAsync;
-});
+    
+    const tabId = tabs[0].id;
+    
+    // コンテンツスクリプトに書籍データの抽出を依頼
+    const extractResponse = await chrome.tabs.sendMessage(tabId, { action: 'extractCurrentBookData' });
+    
+    if (!extractResponse || !extractResponse.success) {
+      return { 
+        success: false, 
+        message: extractResponse?.message || 'ハイライトデータの抽出に失敗しました' 
+      };
+    }
+    
+    // 抽出されたデータを同期
+    const syncResult = await syncBookData(extractResponse.data);
+    return syncResult;
+    
+  } catch (error) {
+    console.error('Booklight AI: 現在の書籍の同期エラー', error);
+    return {
+      success: false,
+      message: `同期エラー: ${error.message}`
+    };
+  }
+}
