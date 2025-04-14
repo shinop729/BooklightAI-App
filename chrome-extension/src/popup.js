@@ -6,22 +6,29 @@ document.addEventListener('DOMContentLoaded', function() {
   const userName = document.getElementById('userName');
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
-  const collectBtn = document.getElementById('collectBtn');
+  const collectBtn = document.getElementById('collectBtn'); // 現在の書籍同期ボタン
   const statusDiv = document.getElementById('status');
   const connectionStatus = document.getElementById('connectionStatus');
   const errorDetailsElement = document.getElementById('errorDetails'); // エラー詳細用
   const toastElement = document.getElementById('toast'); // トースト用
   const lastSyncTimeElement = document.getElementById('lastSyncTime'); // 最終同期日時表示用
+  const downloadCsvBtn = document.getElementById('downloadCsvBtn'); // CSVダウンロードボタン
 
-  // --- 一括取得用UI要素 ---
-  const collectAllBtn = document.getElementById('collectAllBtn');
+  // --- 書籍リスト同期用UI要素 ---
+  const loadBookListBtn = document.getElementById('loadBookListBtn'); // 書籍リスト取得ボタン
+  const bookListContainer = document.getElementById('bookListContainer'); // 書籍リストコンテナ
+  const syncSelectedBtn = document.getElementById('syncSelectedBtn'); // 選択書籍同期ボタン
+  // --- 書籍リスト同期用UI要素ここまで ---
+
+  // --- 一括取得用UI要素 (進捗表示用) ---
   const collectAllProgress = document.getElementById('collectAllProgress');
   const collectAllProgressText = document.getElementById('collectAllProgressText');
   const collectAllProgressBar = document.getElementById('collectAllProgressBar');
   const cancelCollectAllBtn = document.getElementById('cancelCollectAllBtn');
   // --- 一括取得用UI要素ここまで ---
 
-  let isCollecting = false; // 収集中のフラグ (単一・一括共通)
+  let isCollecting = false; // 収集中のフラグ (単一・複数共通)
+  let currentBookList = []; // 取得した書籍リストを保持
 
   // 認証状態と最終同期日時の確認
   function checkAuthAndSyncStatus() {
@@ -58,16 +65,28 @@ document.addEventListener('DOMContentLoaded', function() {
       const tabId = tabs[0].id;
 
       // コンテンツスクリプトに書籍情報を要求 (タイトルと著者を取得するため)
+      // ページがKindleハイライトページでない可能性も考慮
       chrome.tabs.sendMessage(tabId, { action: 'extractCurrentBookData' }, function(bookResponse) {
-        if (chrome.runtime.lastError || !bookResponse || !bookResponse.success || !bookResponse.data) {
+        if (chrome.runtime.lastError) {
+          // content scriptが注入されていないか、応答がない場合
+          if (chrome.runtime.lastError.message?.includes("Receiving end does not exist")) {
+            lastSyncTimeElement.textContent = 'N/A (非対象ページ)';
+            console.warn("displayCurrentBookSyncStatus: コンテンツスクリプトが実行されていません。Kindleページを開いてください。");
+          } else {
+            lastSyncTimeElement.textContent = '通信エラー';
+            console.error("displayCurrentBookSyncStatus: content script communication error:", chrome.runtime.lastError.message);
+          }
+          return;
+        }
+        if (!bookResponse || !bookResponse.success || !bookResponse.data) {
           lastSyncTimeElement.textContent = '情報取得失敗';
           return;
         }
 
         const { book_title, author } = bookResponse.data;
 
-        if (!book_title || !author) {
-          lastSyncTimeElement.textContent = '書籍情報不足';
+        if (!book_title || !author || book_title === '不明な書籍') {
+          lastSyncTimeElement.textContent = '書籍情報なし';
           return;
         }
 
@@ -105,14 +124,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (loggedIn) {
       collectBtn.disabled = collecting;
-      collectAllBtn.disabled = collecting;
-      collectAllProgress.style.display = collecting ? 'block' : 'none';
-      cancelCollectAllBtn.style.display = collecting ? 'block' : 'none'; // キャンセルボタン表示
+      loadBookListBtn.disabled = collecting; // 書籍リスト取得ボタンも無効化
+      syncSelectedBtn.disabled = collecting || currentBookList.length === 0; // 収集中またはリストが空なら無効
+      cancelCollectAllBtn.style.display = collecting ? 'block' : 'none'; // キャンセルボタン表示/非表示
+      collectAllProgress.style.display = collecting ? 'block' : 'none'; // 進捗表示/非表示
+
       if (!collecting) {
           // 収集中でなければ通常のステータス表示に戻す
           statusDiv.className = 'status';
           statusDiv.textContent = '';
           errorDetailsElement.style.display = 'none';
+          // 進捗表示もリセット
+          collectAllProgressText.textContent = '';
+          collectAllProgressBar.style.width = '0%';
       }
     }
   }
@@ -127,17 +151,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ログインボタン
   loginBtn.addEventListener('click', function() {
-    console.log("Booklight AI: Login button clicked"); // Log
+    console.log("Booklight AI: Login button clicked");
     showStatus('info', 'ログイン中...');
     chrome.runtime.sendMessage({ action: 'login' }, function(response) {
-      console.log("Booklight AI: Login response received", response); // Log
+      console.log("Booklight AI: Login response received", response);
       if (chrome.runtime.lastError) {
-        console.error("Booklight AI: Login error", chrome.runtime.lastError); // Log error
+        console.error("Booklight AI: Login error", chrome.runtime.lastError);
         showStatus('error', `ログインエラー: ${chrome.runtime.lastError.message}`);
         return;
       }
       if (response && response.success) {
-        checkAuthAndSyncStatus(); // UI状態更新を含む (修正)
+        checkAuthAndSyncStatus();
         showStatus('success', 'ログインしました');
       } else {
         showStatus('error', response ? response.message : 'ログインに失敗しました');
@@ -147,17 +171,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ログアウトボタン
   logoutBtn.addEventListener('click', function() {
-    console.log("Booklight AI: Logout button clicked"); // Log
+    console.log("Booklight AI: Logout button clicked");
     chrome.runtime.sendMessage({ action: 'logout' }, function(response) {
-      console.log("Booklight AI: Logout response received", response); // Log
+      console.log("Booklight AI: Logout response received", response);
       if (chrome.runtime.lastError) {
-        console.error("Booklight AI: Logout error", chrome.runtime.lastError); // Log error
+        console.error("Booklight AI: Logout error", chrome.runtime.lastError);
         showStatus('error', `ログアウトエラー: ${chrome.runtime.lastError.message}`);
         return;
       }
       if (response && response.success) {
-        checkAuthAndSyncStatus(); // UI状態更新を含む (修正)
+        checkAuthAndSyncStatus();
         showStatus('info', 'ログアウトしました');
+        // ログアウトしたら書籍リストもクリア
+        bookListContainer.innerHTML = '<p style="text-align: center; color: #888;">書籍リストを読み込んでください</p>';
+        bookListContainer.style.display = 'none';
+        syncSelectedBtn.style.display = 'none';
+        currentBookList = [];
       } else {
         showStatus('error', 'ログアウトに失敗しました');
       }
@@ -167,13 +196,12 @@ document.addEventListener('DOMContentLoaded', function() {
   // 表示中の書籍を同期ボタン
   collectBtn.addEventListener('click', function() {
     console.log("Booklight AI: Sync Current Book button clicked");
-    setUIState(true, true); // 同期開始状態
+    setUIState(true, true); // 同期開始状態 (isCollecting = true)
     showStatus('info', '現在の書籍を同期中...');
     errorDetailsElement.style.display = 'none';
     if (lastSyncTimeElement) lastSyncTimeElement.textContent = '同期中...';
 
     // バックグラウンドに同期開始を依頼
-    // バックグラウンド側でタブ特定、コンテンツスクリプトへの抽出依頼、差分同期を行う
     chrome.runtime.sendMessage({ action: 'syncCurrentBook' }, function(response) {
       console.log("Booklight AI: 'syncCurrentBook' response from background script", response);
       if (chrome.runtime.lastError) {
@@ -184,137 +212,208 @@ document.addEventListener('DOMContentLoaded', function() {
         showDetailedError('バックグラウンドスクリプトからの応答がありません');
       } else if (response.success) {
         let message = response.message || '同期が完了しました';
-        if (response.newHighlightsCount !== undefined) {
-            message = `${response.newHighlightsCount}件の新規ハイライトを同期しました。`;
-            if (response.isNewBook) {
-                message = `新規書籍として同期しました (${response.newHighlightsCount}件のハイライト)`;
-            }
+        // バックエンド差分検出の場合、newHighlightsCount は常に返る想定
+        if (response.added_count !== undefined) {
+            message = `${response.added_count}件の新規ハイライトを追加しました。`;
         }
-        if (response.offline) {
-          showStatus('warning', message + ' (オフライン)');
-        } else {
-          showStatus('success', message);
-        }
+        showStatus('success', message);
         // 同期成功後、最終同期日時を再表示
         displayCurrentBookSyncStatus();
       } else {
         showDetailedError(response.message || '同期に失敗しました');
-        // 失敗した場合も同期ステータスを更新してみる（エラー表示になるはず）
+        // 失敗した場合も同期ステータスを更新してみる
         displayCurrentBookSyncStatus();
       }
-      setUIState(true, false); // 同期終了状態
+      setUIState(true, false); // 同期終了状態 (isCollecting = false)
     });
   });
 
-  // --- 全書籍のハイライト取得ボタン（改良版）---
-  collectAllBtn.addEventListener('click', function() {
-    console.log("Booklight AI: Collect All button clicked");
-    
+  // --- ライブラリから書籍リストを取得ボタン ---
+  loadBookListBtn.addEventListener('click', function() {
+    console.log("Booklight AI: Load Book List button clicked");
+    showStatus('info', '書籍リストを取得中...');
+    bookListContainer.innerHTML = '<p style="text-align: center; color: #888;">読み込み中...</p>'; // 読み込み表示
+    bookListContainer.style.display = 'block';
+    syncSelectedBtn.style.display = 'none'; // 同期ボタンを隠す
+    loadBookListBtn.disabled = true; // 取得中はボタン無効化
+
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (chrome.runtime.lastError || !tabs || tabs.length === 0) {
+        showDetailedError('現在のタブ情報の取得に失敗しました: ' + (chrome.runtime.lastError?.message || 'タブが見つかりません'));
+        loadBookListBtn.disabled = false;
+        bookListContainer.innerHTML = '<p style="text-align: center; color: red;">タブ情報の取得失敗</p>';
+        return;
+      }
+      const currentTab = tabs[0];
+
+      // Kindleノートブックページか確認
+      if (!currentTab.url || !currentTab.url.includes('read.amazon.co.jp/notebook')) {
+        showStatus('error', 'Kindleノートブックページ (read.amazon.co.jp/notebook) を開いてください');
+        loadBookListBtn.disabled = false;
+        bookListContainer.innerHTML = '<p style="text-align: center; color: red;">ノートブックページを開いてください</p>';
+        return;
+      }
+
+      // content.js に書籍リスト取得を依頼
+      console.log("Booklight AI: Sending 'getBookList' message to content script");
+      chrome.tabs.sendMessage(currentTab.id, { action: 'getBookList' }, function(response) {
+        loadBookListBtn.disabled = false; // ボタン有効化
+        if (chrome.runtime.lastError) {
+          showDetailedError('コンテンツスクリプトとの通信に失敗: ' + chrome.runtime.lastError.message);
+          bookListContainer.innerHTML = '<p style="text-align: center; color: red;">通信エラー</p>';
+          return;
+        }
+
+        if (response && response.success && response.data && response.data.length > 0) {
+          currentBookList = response.data; // 取得したリストを保持
+          console.log(`Booklight AI: Received ${currentBookList.length} books`);
+          displayBookList(currentBookList); // リスト表示関数を呼び出す
+          syncSelectedBtn.style.display = 'block'; // 同期ボタン表示
+          showStatus('info', `${currentBookList.length}件の書籍が見つかりました。同期する書籍を選択してください。`);
+          setUIState(true, false); // ★★★ 追加: 収集中でない状態に更新し、ボタンを有効化 ★★★
+        } else {
+          showStatus('error', response?.message || '書籍リストの取得に失敗しました。');
+          bookListContainer.innerHTML = '<p style="text-align: center; color: red;">リスト取得失敗</p>';
+        }
+      });
+    });
+  });
+
+  // --- 選択した書籍を同期ボタン ---
+  syncSelectedBtn.addEventListener('click', function() {
+    console.log("Booklight AI: Sync Selected button clicked");
+    const selectedBooks = [];
+    const checkboxes = bookListContainer.querySelectorAll('input[type="checkbox"]:checked');
+
+    checkboxes.forEach(checkbox => {
+      // 'selectAllBooks' チェックボックスは除外
+      if (checkbox.id === 'selectAllBooks') return;
+
+      const bookId = checkbox.value;
+      const book = currentBookList.find(b => b.bookId === bookId);
+      if (book) {
+        selectedBooks.push(book);
+      }
+    });
+
+    if (selectedBooks.length === 0) {
+      showStatus('warning', '同期する書籍を選択してください。');
+      return;
+    }
+
+    console.log(`Booklight AI: ${selectedBooks.length}件の書籍を選択して同期を開始します`);
+
     // UI状態の更新
     setUIState(true, true); // 収集開始状態
-    collectAllProgressText.textContent = '書籍リストを取得中...';
-    collectAllProgressBar.style.width = '0%';
-    collectAllProgress.style.display = 'block';
+    updateProgressUI(0, selectedBooks.length, '選択された書籍の同期を開始中...'); // 進捗初期化
+    collectAllProgress.style.display = 'block'; // 進捗表示
     errorDetailsElement.style.display = 'none';
     statusDiv.className = 'status info';
-    statusDiv.textContent = '全書籍のハイライト取得を開始しました...';
-    
-    // 現在のタブ情報を取得
+    statusDiv.textContent = '選択された書籍の同期を開始しました...';
+
+    // バックグラウンドに処理を依頼
     chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-        if (chrome.runtime.lastError || !tabs || tabs.length === 0) {
-            showDetailedError('現在のタブ情報の取得に失敗しました: ' + (chrome.runtime.lastError?.message || 'タブが見つかりません'));
-            setUIState(true, false);
-            return;
-        }
-        
-        const currentTab = tabs[0];
-        
-        // Kindleノートブックページかどうかを確認
-        if (!currentTab.url || !currentTab.url.includes('read.amazon.co.jp/notebook')) {
-            showStatus('error', 'Kindleノートブックページ (read.amazon.co.jp/notebook) を開いてください');
-            setUIState(true, false);
-            return;
-        }
-        
-        // content.js に書籍リスト取得を依頼
-        console.log("Booklight AI: Sending 'getBookList' message to content script");
-        chrome.tabs.sendMessage(currentTab.id, { action: 'getBookList' }, function(bookListResponse) {
-            if (chrome.runtime.lastError) {
-                showDetailedError('コンテンツスクリプトとの通信に失敗: ' + chrome.runtime.lastError.message);
-                setUIState(true, false);
-                return;
-            }
-            
-            if (!bookListResponse || !bookListResponse.success || !bookListResponse.data || bookListResponse.data.length === 0) {
-                showStatus('error', bookListResponse?.message || '書籍リストの取得に失敗しました。Kindleノートブックページを確認してください。');
-                setUIState(true, false);
-                return;
-            }
-            
-            const bookList = bookListResponse.data;
-            console.log(`Booklight AI: Received ${bookList.length} books from content script`);
-            
-            // 書籍リストを添えて一括取得処理を開始
-            startCollection(bookList);
-        });
+      const currentTabId = tabs.length > 0 ? tabs[0].id : null;
+      console.log("Booklight AI: Sending 'collectAllHighlights' message to background script with selected books");
+      chrome.runtime.sendMessage({
+          action: 'collectAllHighlights',
+          bookList: selectedBooks, // 選択された書籍リストを渡す
+          tabId: currentTabId
+      }, function(response) {
+          console.log("Booklight AI: 'collectAllHighlights' initial response for selected:", response);
+          if (chrome.runtime.lastError) {
+              console.error("Booklight AI: Error sending message:", chrome.runtime.lastError);
+              showDetailedError('バックグラウンドとの通信に失敗: ' + chrome.runtime.lastError.message);
+              setUIState(true, false);
+          } else if (response && !response.success) {
+              showStatus('warning', response.message || '同期の開始に失敗しました');
+              setUIState(true, false);
+          }
+          // 成功した場合、進捗は updateProgress で受信
+      });
     });
-    
-    // 一括取得処理を開始する関数 (書籍リストを受け取るように変更)
-    function startCollection(bookList) {
-        // 進捗表示の初期化 (書籍数を反映)
-        updateProgressUI(0, bookList.length, 'バックグラウンド処理を開始中...');
-        
-        // 現在のタブIDを取得して一緒に送信
-        chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-            const currentTabId = tabs.length > 0 ? tabs[0].id : null;
-            
-            // バックグラウンドに一括取得開始を依頼 (書籍リストとタブIDを渡す)
-            console.log("Booklight AI: Sending 'collectAllHighlights' message to background script with book list");
-            chrome.runtime.sendMessage({ 
-                action: 'collectAllHighlights', 
-                bookList: bookList,
-                tabId: currentTabId // タブIDを追加
-            }, function(response) {
-                console.log("Booklight AI: 'collectAllHighlights' initial response:", response);
-                
-                // エラー処理 (変更なし)
-                if (chrome.runtime.lastError) {
-                    console.error("Booklight AI: Error sending message:", chrome.runtime.lastError);
-                    showDetailedError('バックグラウンドとの通信に失敗: ' + chrome.runtime.lastError.message);
-                    setUIState(true, false);
-                    return;
-                }
-                
-                // 処理開始エラー（既に実行中など）
-                if (response && !response.success) {
-                    showStatus('warning', response.message || '一括取得の開始に失敗しました');
-                    setUIState(true, false);
-                }
-                
-                // 成功した場合は、進捗は別途 updateProgress メッセージで受信
-                console.log("Booklight AI: collectAllHighlights メッセージ送信完了");
-            });
-        });
-    }
-    
-    // 進捗表示を更新する関数
-    function updateProgressUI(processed, total, message) {
-        collectAllProgressText.textContent = message || `処理中: ${processed}/${total}`;
-        const percentage = total > 0 ? Math.round((processed / total) * 100) : 0;
-        collectAllProgressBar.style.width = `${percentage}%`;
-        
-        // ステータス表示も更新
-        if (message.includes('エラー') || message.includes('失敗')) {
-            showStatus('error', message);
-        } else if (message.includes('完了')) {
-            showStatus('success', message);
-        } else {
-            showStatus('info', message);
-        }
-    }
   });
 
-  // --- キャンセルボタン（改良版）---
+  // --- 書籍リストを表示する関数 ---
+  function displayBookList(books) {
+    bookListContainer.innerHTML = ''; // コンテナをクリア
+
+    // 「すべて選択/解除」チェックボックス
+    const selectAllContainer = document.createElement('div');
+    selectAllContainer.style.marginBottom = '5px';
+    selectAllContainer.style.borderBottom = '1px solid #eee';
+    selectAllContainer.style.paddingBottom = '5px';
+
+    const selectAllCheckbox = document.createElement('input');
+    selectAllCheckbox.type = 'checkbox';
+    selectAllCheckbox.id = 'selectAllBooks';
+    selectAllCheckbox.style.marginRight = '5px';
+    selectAllCheckbox.addEventListener('change', function() {
+        bookListContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            if (cb.id !== 'selectAllBooks') { // 自分自身は除く
+                cb.checked = selectAllCheckbox.checked;
+            }
+        });
+    });
+
+    const selectAllLabel = document.createElement('label');
+    selectAllLabel.htmlFor = 'selectAllBooks';
+    selectAllLabel.textContent = 'すべて選択/解除';
+    selectAllLabel.style.fontWeight = 'bold';
+
+    selectAllContainer.appendChild(selectAllCheckbox);
+    selectAllContainer.appendChild(selectAllLabel);
+    bookListContainer.appendChild(selectAllContainer);
+
+    // 各書籍のチェックボックス
+    books.forEach(book => {
+      const div = document.createElement('div');
+      div.style.marginBottom = '3px';
+      div.style.fontSize = '12px';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = book.bookId; // valueにbookIdを設定
+      checkbox.id = `book-${book.bookId}`;
+      checkbox.style.marginRight = '5px';
+      // 個別チェックボックスの変更で「すべて選択」の状態を更新
+      checkbox.addEventListener('change', function() {
+          const allCheckboxes = bookListContainer.querySelectorAll('input[type="checkbox"]:not(#selectAllBooks)');
+          const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+          selectAllCheckbox.checked = allChecked;
+          const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
+          // 部分選択状態（indeterminate）を設定
+          selectAllCheckbox.indeterminate = !allChecked && someChecked;
+      });
+
+      const label = document.createElement('label');
+      label.htmlFor = `book-${book.bookId}`;
+      label.textContent = `${book.title} (${book.author})`;
+      label.title = `ID: ${book.bookId}`; // ツールチップでID表示
+
+      div.appendChild(checkbox);
+      div.appendChild(label);
+      bookListContainer.appendChild(div);
+    });
+  }
+
+  // --- 進捗表示を更新する関数 ---
+  function updateProgressUI(processed, total, message) {
+      collectAllProgressText.textContent = message || `処理中: ${processed}/${total}`;
+      const percentage = total > 0 ? Math.round((processed / total) * 100) : 0;
+      collectAllProgressBar.style.width = `${percentage}%`;
+
+      // ステータス表示も更新
+      if (message.includes('エラー') || message.includes('失敗')) {
+          showStatus('error', message);
+      } else if (message.includes('完了')) {
+          showStatus('success', message);
+      } else {
+          showStatus('info', message);
+      }
+  }
+
+  // --- キャンセルボタン ---
   cancelCollectAllBtn.addEventListener('click', function() {
       console.log("Booklight AI: Cancel button clicked");
       showStatus('warning', '一括取得をキャンセル中...');
@@ -323,17 +422,17 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log("Booklight AI: Sending 'cancelCollectAll' message to background script");
       chrome.runtime.sendMessage({ action: 'cancelCollectAll' }, function(response) {
           console.log("Booklight AI: 'cancelCollectAll' response:", response);
-          
+
           // ボタンを再度有効化
-          cancelCollectAllBtn.disabled = false; 
-          
+          cancelCollectAllBtn.disabled = false;
+
           if (chrome.runtime.lastError) {
               console.error("Booklight AI: Error sending message:", chrome.runtime.lastError);
               showDetailedError('キャンセル処理の通信に失敗: ' + chrome.runtime.lastError.message);
               // UI状態は変更せず、エラーを表示
               return;
           }
-          
+
           if (response && response.success) {
               showStatus('info', response.message || '一括取得をキャンセルしました。');
               setUIState(true, false); // 収集終了状態に戻す
@@ -344,40 +443,26 @@ document.addEventListener('DOMContentLoaded', function() {
       });
   });
 
-  // --- バックグラウンドからの進捗更新メッセージをリッスン（改良版）---
+  // --- バックグラウンドからの進捗更新メッセージをリッスン ---
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'updateProgress') {
       console.log("Booklight AI: Progress update received:", request);
-      
+
       // 収集中の場合のみUIを更新
       if (isCollecting) {
         const { processed, total, message } = request;
-        
+
         // 進捗バーとテキストを更新
-        collectAllProgressText.textContent = message || `処理中: ${processed}/${total}`;
-        const percentage = total > 0 ? Math.round((processed / total) * 100) : 0;
-        collectAllProgressBar.style.width = `${percentage}%`;
+        updateProgressUI(processed, total, message);
 
         // 完了、エラー、キャンセルのメッセージを判定
         const isError = message.includes('エラー') || message.includes('失敗') || message.includes('タイムアウト');
         const isCancelled = message.includes('キャンセル');
-        // ★ 修正: 全体完了の判定を追加 (processed === total かつメッセージに「完了」)
         const isOverallComplete = (processed === total && message.includes('完了'));
 
-        // ステータス表示を更新
-        if (isError) {
-            showStatus('error', message);
-            setUIState(true, false); // エラー時は収集終了
-        } else if (isCancelled) {
-            showStatus('warning', message);
-            setUIState(true, false); // キャンセル時は収集終了
-        } else if (isOverallComplete) { // ★ 修正: 全体完了の場合のみ isCollecting を false にする
-            showStatus('success', message);
-            setUIState(true, false); // 全体完了時は収集終了
-        } else {
-            // 処理中のメッセージ (個別の完了メッセージも含む)
-            showStatus('info', message);
-            // isCollecting は true のまま
+        // 収集が終了した場合（完了、エラー、キャンセル）
+        if (isError || isCancelled || isOverallComplete) {
+            setUIState(true, false); // 収集終了状態に戻す
         }
       }
     }
@@ -393,10 +478,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (type !== 'error') {
         errorDetailsElement.style.display = 'none';
     }
-    // 収集中でなければ進捗表示も隠す
-    if (!isCollecting) {
-        collectAllProgress.style.display = 'none';
-    }
+    // 収集中でなければ進捗表示も隠す (setUIStateで制御されるので不要かも)
+    // if (!isCollecting) {
+    //     collectAllProgress.style.display = 'none';
+    // }
   }
 
   // 詳細なエラーメッセージの表示
@@ -456,8 +541,6 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // --- CSVダウンロード機能 ---
-  const downloadCsvBtn = document.getElementById('downloadCsvBtn');
-
   if (downloadCsvBtn) {
     downloadCsvBtn.addEventListener('click', async function() {
       console.log("Booklight AI: Download CSV button clicked");

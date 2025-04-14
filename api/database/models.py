@@ -62,6 +62,7 @@ class Book(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
     author = Column(String, index=True)
+    cover_image_url = Column(String, nullable=True)  # カバー画像URLカラムを追加
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # user_id属性を追加
     
     user = relationship("User", backref="books")  # ユーザーとの関連を追加

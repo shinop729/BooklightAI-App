@@ -161,8 +161,13 @@
     <button id="downloadCsvBtn" class="btn btn-secondary" style="margin-top: 5px;">CSVダウンロード</button> <!-- 追加 -->
     <p class="sync-status">最終同期: <span id="lastSyncTime">確認中...</span></p>
     <hr>
-    <h3>一括同期</h3>
-    <button id="collectAllBtn">全書籍のハイライトを取得</button> {/* ボタンテキストは変更しないでおきます */}
+    <h3>書籍リスト同期</h3>
+    <button id="loadBookListBtn">ライブラリから書籍リストを取得</button> <!-- IDとテキスト変更 -->
+    <div id="bookListContainer" style="max-height: 150px; overflow-y: auto; border: 1px solid #ccc; padding: 5px; margin-top: 5px; display: none;">
+      <!-- 書籍リストがここに表示される -->
+      <p style="text-align: center; color: #888;">書籍リストを読み込んでください</p>
+    </div>
+    <button id="syncSelectedBtn" style="margin-top: 5px; display: none;">選択した書籍を同期</button> <!-- 新しいボタン -->
     <div id="status" class="status"></div>
     <div id="errorDetails" class="error-details" style="display:none;"></div>
 

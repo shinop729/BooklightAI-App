@@ -1,7 +1,8 @@
 // APIエンドポイント設定
 // const API_BASE_URL = 'http://localhost:8000'; // 開発環境
 const API_BASE_URL = 'https://booklight-ai.com'; // 本番環境
-const SYNC_API_ENDPOINT = `${API_BASE_URL}/api/sync-highlights`; // 差分同期用エンドポイント
+const SYNC_API_ENDPOINT = `${API_BASE_URL}/api/sync-highlights`; // 差分同期用エンドポイント (旧)
+const BULK_HIGHLIGHTS_ENDPOINT = `${API_BASE_URL}/api/highlights/bulk`; // 新しい一括登録エンドポイント
 const CSV_EXPORT_KEY = 'csvExportData'; // CSVエクスポート用データキー
 
 // 開発モードの設定
@@ -166,9 +167,89 @@ async function saveDataForCsvExport(bookData) {
   }
 }
 
+// --- 新しい関数: 全ハイライトデータをバックエンドに送信 ---
+/**
+ * 抽出された全書籍データをバックエンドのbulkエンドポイントに送信する
+ * @param {object} extractedData - extractCurrentBookDataから返されたデータ
+ *                               { book_title, author, cover_image_url, highlights: [{ content, location }] }
+ * @returns {Promise<object>} - APIからのレスポンス結果 { success, message, added_count?, book_id? }
+ */
+async function sendAllHighlightsToAPI(extractedData) {
+  const { book_title, author, cover_image_url, highlights } = extractedData;
+
+  if (!book_title || !author) {
+    console.warn('Booklight AI: 書籍タイトルまたは著者が不明なためAPI送信をスキップします', extractedData);
+    return { success: false, message: '書籍タイトルまたは著者が不明です' };
+  }
+
+  console.log(`Booklight AI: 書籍「${book_title}」の全ハイライトデータをAPIに送信します`);
+
+  try {
+    // 1. 認証トークンを取得
+    const isTokenValid = await validateToken();
+    if (!isTokenValid) {
+      return { success: false, message: '認証が必要です。再度ログインしてください。' };
+    }
+    const authData = await chrome.storage.local.get(['authToken']);
+    if (!authData.authToken) {
+      return { success: false, message: 'ログインが必要です' };
+    }
+
+    // 2. APIペイロードを作成 (BulkHighlightRequestに合わせる)
+    const payload = {
+      book_info: {
+        title: book_title,
+        author: author,
+        cover_image_url: cover_image_url
+      },
+      highlights: highlights.map(h => ({ // HighlightCreateに合わせる
+        content: h.content,
+        location: h.location
+      }))
+    };
+
+    // 3. APIにPOSTリクエストを送信
+    const response = await fetch(BULK_HIGHLIGHTS_ENDPOINT, { // 新しいエンドポイントを使用
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authData.authToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    // 4. レスポンス処理
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Booklight AI: 一括登録APIエラー', response.status, errorText);
+      if (response.status === 401) {
+        await chrome.storage.local.remove(['authToken', 'authTime']);
+        return { success: false, message: '認証の有効期限が切れました。再度ログインしてください。' };
+      }
+      // オフライン判定はここでは行わない（必要なら追加）
+      return { success: false, message: `APIエラー: ${response.status} ${errorText}` };
+    }
+
+    const data = await response.json(); // BulkHighlightResponse を期待
+    console.log('Booklight AI: 一括登録API応答', data);
+
+    return {
+      success: data.success,
+      message: data.message || `${data.added_count}件のハイライトを追加しました`,
+      added_count: data.added_count,
+      book_id: data.book_id
+    };
+
+  } catch (error) {
+    console.error(`Booklight AI: 書籍「${book_title}」の一括登録API送信中にエラーが発生しました`, error);
+    // オフライン判定はここでは行わない（必要なら追加）
+    return { success: false, message: `API送信エラー: ${error.message}` };
+  }
+}
+
 
 /**
- * 書籍データを同期する（差分検出とAPI送信）
+ * 書籍データを同期する（差分検出とAPI送信） - 旧ロジック (クライアントサイド差分)
  * @param {object} bookData - コンテンツスクリプトから抽出された書籍データ
  *                           { book_title, author, cover_image_url, highlights: [{ content, location }] }
  * @returns {Promise<object>} - 同期結果 { success, message, offline?, newHighlightsCount?, isNewBook? }
@@ -574,17 +655,23 @@ async function processBookQueue() {
     // 抽出データを処理
     if (extractResponse && extractResponse.success && extractResponse.data) {
       console.log(`Booklight AI: 書籍「${nextBook.title}」のデータ抽出成功`);
-      allCollectedData[nextBook.bookId] = extractResponse.data; // 収集データに追加
+      allCollectedData[nextBook.bookId] = extractResponse.data; // 収集データに追加 (これは一括取得完了後に使うかもしれないので残す)
 
-      // 個別同期処理を実行
-      notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」を同期中...`);
-      const syncResult = await syncBookData(extractResponse.data);
-      console.log(`Booklight AI: 書籍「${nextBook.title}」同期結果:`, syncResult);
+      // 抽出した全データをAPIに送信 (バックエンド差分検出)
+      notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」をAPIに送信中...`);
+      const apiResult = await sendAllHighlightsToAPI(extractResponse.data);
+      console.log(`Booklight AI: 書籍「${nextBook.title}」API送信結果:`, apiResult);
 
       // CSVエクスポート用データも保存
       await saveDataForCsvExport(extractResponse.data);
 
-      notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」処理完了`);
+      // APIの結果に基づいて進捗メッセージを更新
+      if (apiResult.success) {
+          notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」同期完了 (${apiResult.added_count || 0}件追加)`);
+      } else {
+          notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」同期失敗: ${apiResult.message}`);
+          // エラーがあっても続行する
+      }
     } else {
       console.warn(`Booklight AI: 書籍「${nextBook.title}」のデータ抽出に失敗: ${extractResponse?.message}`);
       notifyProgress(processedCount + 1, totalBooks, `書籍「${nextBook.title}」の抽出失敗`);
@@ -1100,9 +1187,10 @@ async function logoutUser() {
   }
 }
 
-// 現在表示中の書籍のハイライトを同期する関数
+// 現在表示中の書籍のハイライトを同期する関数 (修正: 新しいAPI送信関数を呼び出す)
 async function syncCurrentBookHighlights() {
   try {
+    console.log("Booklight AI: 現在の書籍の同期処理を開始します (syncCurrentBookHighlights)");
     // 現在のタブを取得
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tabs || tabs.length === 0) {
@@ -1124,10 +1212,28 @@ async function syncCurrentBookHighlights() {
     // 抽出されたデータをCSVエクスポート用に保存
     await saveDataForCsvExport(extractResponse.data);
     
-    // 抽出されたデータを同期
-    const syncResult = await syncBookData(extractResponse.data);
-    return syncResult;
-    
+    // 抽出されたデータをCSVエクスポート用に保存
+    await saveDataForCsvExport(extractResponse.data);
+
+    // 抽出された全データを新しいAPIエンドポイントに送信
+    console.log("Booklight AI: 抽出データをバックエンドの一括登録APIに送信します");
+    const apiResult = await sendAllHighlightsToAPI(extractResponse.data);
+
+    // 必要に応じてローカルの同期ステータスを更新（任意）
+    // バックエンドで差分処理するので、ローカルステータス更新は必須ではないが、
+    // UI表示用に最終同期日時などを更新しても良いかもしれない。
+    if (apiResult.success) {
+        const storageKey = generateBookStorageKey(extractResponse.data.book_title, extractResponse.data.author);
+        const previousStatus = await getBookSyncStatus(storageKey);
+        const existingIds = previousStatus?.syncedHighlightIds || new Set();
+        // バックエンドで追加された件数が返ってくるので、それを使うのは難しい。
+        // 単純に最終同期日時だけ更新する。
+        await saveBookSyncStatus(storageKey, new Date().toISOString(), existingIds);
+        console.log(`Booklight AI: 書籍「${extractResponse.data.book_title}」のローカル最終同期日時を更新しました`);
+    }
+
+    return apiResult; // APIからの結果を返す
+
   } catch (error) {
     console.error('Booklight AI: 現在の書籍の同期エラー', error);
     return {
