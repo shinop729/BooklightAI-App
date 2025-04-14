@@ -5,7 +5,7 @@ const SYNC_API_ENDPOINT = `${API_BASE_URL}/api/sync-highlights`; // 差分同期
 const BULK_HIGHLIGHTS_ENDPOINT = `${API_BASE_URL}/api/highlights/bulk`; // 新しい一括登録エンドポイント
 const CSV_EXPORT_KEY = 'csvExportData'; // CSVエクスポート用データキー
 
-// 開発モードの設定
+// 開発モードの設定 (重要: 本番ビルド時には必ず false に設定してください！)
 const DEV_MODE = true; // 開発環境ではtrueに設定
 
 // ダミーデータのインポート（開発用）
@@ -185,13 +185,20 @@ async function sendAllHighlightsToAPI(extractedData) {
   console.log(`Booklight AI: 書籍「${book_title}」の全ハイライトデータをAPIに送信します`);
 
   try {
-    // 1. 認証トークンを取得
-    const isTokenValid = await validateToken();
-    if (!isTokenValid) {
-      return { success: false, message: '認証が必要です。再度ログインしてください。' };
+    // 1. 認証トークンを取得または開発用トークンを使用
+    let bearerToken;
+    if (DEV_MODE) {
+      console.log("Booklight AI: 開発モードのため、dev-token-123 を使用します。");
+      bearerToken = 'dev-token-123';
+    } else {
+      const isTokenValid = await validateToken(); // 本番環境ではトークン検証
+      if (!isTokenValid) {
+        return { success: false, message: '認証が必要です。再度ログインしてください。' };
+      }
+      const authData = await chrome.storage.local.get(['authToken']);
+      bearerToken = authData.authToken;
     }
-    const authData = await chrome.storage.local.get(['authToken']);
-    if (!authData.authToken) {
+    if (!bearerToken) {
       return { success: false, message: 'ログインが必要です' };
     }
 
@@ -213,10 +220,20 @@ async function sendAllHighlightsToAPI(extractedData) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authData.authToken}`
+        'Authorization': `Bearer ${bearerToken}` // 条件に応じたトークンを使用
       },
       body: JSON.stringify(payload)
     });
+
+    // 開発モード時のデバッグログ
+    if (DEV_MODE) {
+      console.log('Booklight AI: [DEV] API Request Sent:', {
+        endpoint: BULK_HIGHLIGHTS_ENDPOINT,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${bearerToken}` },
+        payload: payload
+      });
+    }
 
     // 4. レスポンス処理
     if (!response.ok) {
@@ -473,23 +490,45 @@ async function sendCachedSyncPayloads() {
   }
 }
 
-// 差分ペイロードをAPIに送信するヘルパー関数
+// 差分ペイロードをAPIに送信するヘルパー関数 (旧ロジック用、必要であれば同様に修正)
+// 注意: 現在の syncCurrentBookHighlights は sendAllHighlightsToAPI を使用しているため、
+// この関数が実際に呼び出されるかはコード全体を確認する必要があります。
+// もし呼び出される場合は、sendAllHighlightsToAPI と同様の DEV_MODE 判定を追加してください。
 async function sendSyncPayloadToAPIOnly(payload) {
     try {
-        console.log('Booklight AI: APIに差分ペイロードのみ送信します', payload);
-        const isTokenValid = await validateToken();
-        if (!isTokenValid) return { success: false, message: '認証トークンが無効です' };
-        const authData = await chrome.storage.local.get(['authToken']);
-        if (!authData.authToken) return { success: false, message: 'ログインが必要です' };
+        console.log('Booklight AI: APIに差分ペイロードのみ送信します (旧ロジック)', payload);
 
-        const response = await fetch(SYNC_API_ENDPOINT, {
+        // 認証トークンを取得または開発用トークンを使用
+        let bearerToken;
+        if (DEV_MODE) {
+          console.log("Booklight AI: [DEV] sendSyncPayloadToAPIOnly - dev-token-123 を使用します。");
+          bearerToken = 'dev-token-123';
+        } else {
+          const isTokenValid = await validateToken();
+          if (!isTokenValid) return { success: false, message: '認証トークンが無効です' };
+          const authData = await chrome.storage.local.get(['authToken']);
+          bearerToken = authData.authToken;
+        }
+        if (!bearerToken) return { success: false, message: 'ログインが必要です' };
+
+        const response = await fetch(SYNC_API_ENDPOINT, { // 旧エンドポイント
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authData.authToken}`
+            'Authorization': `Bearer ${bearerToken}` // 条件に応じたトークンを使用
           },
           body: JSON.stringify(payload)
         });
+
+        // 開発モード時のデバッグログ
+        if (DEV_MODE) {
+          console.log('Booklight AI: [DEV] API Request Sent (sendSyncPayloadToAPIOnly):', {
+            endpoint: SYNC_API_ENDPOINT,
+            method: 'POST',
+            headers: { Authorization: `Bearer ${bearerToken}` },
+            payload: payload
+          });
+        }
 
         if (!response.ok) {
           const errorText = await response.text();

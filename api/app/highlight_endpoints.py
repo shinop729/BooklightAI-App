@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 import database.models as models
-from database.session import get_db # get_db をインポート
+from database.base import get_db # get_db をインポート
 
 # ロガーの設定
 logger = logging.getLogger("booklight-api")
